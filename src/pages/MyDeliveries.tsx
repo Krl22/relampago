@@ -80,6 +80,7 @@ export default function MyDeliveries() {
         .from('proofs')
         .getPublicUrl(filePath)
 
+      // Use upsert or insert for delivery proof
       const { error: deliveryError } = await supabase
         .from('deliveries')
         .insert({
@@ -91,6 +92,7 @@ export default function MyDeliveries() {
       
       if (deliveryError) throw deliveryError
 
+      // Update order status
       const { error: updateError } = await supabase
         .from('orders')
         .update({ status: 'delivered' })
@@ -105,6 +107,22 @@ export default function MyDeliveries() {
       alert('Error al subir la prueba de entrega. Asegúrate de que el bucket "proofs" exista y tengas permisos.')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const handlePaymentMethodChange = async (orderId: string, method: string) => {
+    try {
+        const { error } = await supabase
+            .from('orders')
+            .update({ payment_method: method })
+            .eq('id', orderId)
+
+        if (error) throw error
+        
+        // Optimistic update locally
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, payment_method: method } : o))
+    } catch (error) {
+        console.error('Error updating payment method:', error)
     }
   }
 
@@ -150,6 +168,20 @@ export default function MyDeliveries() {
                   <a href={`tel:${order.recipient_phone}`} className="text-blue-600 underline">
                     {order.recipient_phone}
                   </a>
+                </div>
+                
+                <div className="pt-2 border-t mt-2">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Método de Pago</label>
+                  <select 
+                    className="w-full text-sm border rounded p-1 bg-white"
+                    value={order.payment_method || ''}
+                    onChange={(e) => handlePaymentMethodChange(order.id, e.target.value)}
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="Motorizado">Motorizado</option>
+                    <option value="Directo a comercio">Directo a comercio</option>
+                    <option value="Relampago Courier">Relampago Courier</option>
+                  </select>
                 </div>
               </CardContent>
               <CardFooter className="bg-gray-50 p-4 flex gap-2">

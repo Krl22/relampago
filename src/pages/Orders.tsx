@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -11,7 +11,7 @@ import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
 import { Textarea } from '../components/ui/textarea'
-import { Edit, Loader2 } from 'lucide-react'
+import { Edit, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -33,14 +33,46 @@ const orderSchema = z.object({
 
 type OrderFormValues = z.infer<typeof orderSchema>
 
+type SortConfig = {
+  key: string
+  direction: 'asc' | 'desc'
+}
+
+type FilterConfig = {
+  id: string
+  company: string
+  recipient: string
+  status: string
+  courier: string
+  tariff: string
+  payment_method: string
+  total_amount: string
+  delivery_notes: string
+  date: string
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState<Order[]>([])
   const [couriers, setCouriers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState<string>('all')
-  const [searchTerm, setSearchTerm] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+
+  // Filtering and Sorting State
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'created_at', direction: 'desc' })
+  const [filters, setFilters] = useState<FilterConfig>({
+    id: '',
+    company: '',
+    recipient: '',
+    status: 'all',
+    courier: '',
+    tariff: '',
+    payment_method: '',
+    total_amount: '',
+    delivery_notes: '',
+    date: ''
+  })
 
   const {
     register,
@@ -64,6 +96,7 @@ export default function Orders() {
       setValue('tariff', editingOrder.tariff || '')
       setValue('total_amount', editingOrder.total_amount || 0)
       setValue('delivery_notes', editingOrder.delivery_notes || '')
+      setUpdateError(null)
     }
   }, [editingOrder, setValue])
 
@@ -101,27 +134,43 @@ export default function Orders() {
 
   const onUpdateOrder = async (data: OrderFormValues) => {
     if (!editingOrder) return
+    setUpdateError(null)
+
+    console.log('Attempting to update order:', editingOrder.id)
+    console.log('Update data:', data)
 
     try {
-      const { error } = await supabase
+      const { data: updatedData, error } = await supabase
         .from('orders')
         .update({
           assigned_courier: data.assigned_courier || null,
           status: data.status,
           payment_method: data.payment_method || null,
           tariff: data.tariff || null,
-          total_amount: data.total_amount || null,
+          total_amount: data.total_amount ?? null,
           delivery_notes: data.delivery_notes || null,
         })
         .eq('id', editingOrder.id)
+        .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('Supabase update error:', error)
+        throw error
+      }
+
+      console.log('Update result data:', updatedData)
+
+      if (!updatedData || updatedData.length === 0) {
+        console.warn('No rows updated. Check RLS policies or if the record exists.')
+        throw new Error('No se actualizó ningún registro. Verifica permisos o si el pedido existe.')
+      }
 
       setIsDialogOpen(false)
       setEditingOrder(null)
       fetchOrders()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating order:', error)
+      setUpdateError(error.message || 'Error al guardar los cambios. Inténtalo de nuevo.')
     }
   }
 
@@ -130,13 +179,93 @@ export default function Orders() {
     setIsDialogOpen(true)
   }
 
-  const filteredOrders = orders.filter(order => {
-    const matchesStatus = filterStatus === 'all' || order.status === filterStatus
-    const matchesSearch = 
-      order.recipient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.id.toLowerCase().includes(searchTerm.toLowerCase())
-    return matchesStatus && matchesSearch
-  })
+  const handleSort = (key: string) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const filteredAndSortedOrders = useMemo(() => {
+    let result = [...orders]
+
+    // Filtering
+    result = result.filter(order => {
+      const matchCompany = (order.companies?.name || '').toLowerCase().includes(filters.company.toLowerCase())
+      const matchRecipient = order.recipient_name.toLowerCase().includes(filters.recipient.toLowerCase())
+      const matchStatus = filters.status === 'all' || order.status === filters.status
+      const matchCourier = (order.assigned_courier_profile?.full_name || '').toLowerCase().includes(filters.courier.toLowerCase())
+      const matchTariff = (order.tariff || '').toLowerCase().includes(filters.tariff.toLowerCase())
+      const matchPaymentMethod = (order.payment_method || '').toLowerCase().includes(filters.payment_method.toLowerCase())
+      const matchTotalAmount = filters.total_amount === '' || (order.total_amount?.toString() || '').includes(filters.total_amount)
+      const matchDeliveryNotes = (order.delivery_notes || '').toLowerCase().includes(filters.delivery_notes.toLowerCase())
+      
+      const orderDate = format(new Date(order.created_at), 'dd/MM/yyyy', { locale: es })
+      const matchDate = filters.date === '' || orderDate.includes(filters.date)
+
+      return matchCompany && matchRecipient && matchStatus && matchCourier && matchTariff && matchDate && matchPaymentMethod && matchTotalAmount && matchDeliveryNotes
+    })
+
+    // Sorting
+    result.sort((a, b) => {
+      let aValue: any = ''
+      let bValue: any = ''
+
+      switch (sortConfig.key) {
+        case 'company':
+          aValue = a.companies?.name || ''
+          bValue = b.companies?.name || ''
+          break
+        case 'recipient':
+          aValue = a.recipient_name
+          bValue = b.recipient_name
+          break
+        case 'status':
+          aValue = a.status
+          bValue = b.status
+          break
+        case 'courier':
+          aValue = a.assigned_courier_profile?.full_name || ''
+          bValue = b.assigned_courier_profile?.full_name || ''
+          break
+        case 'tariff':
+          aValue = a.tariff || ''
+          bValue = b.tariff || ''
+          break
+        case 'payment_method':
+          aValue = a.payment_method || ''
+          bValue = b.payment_method || ''
+          break
+        case 'total_amount':
+          aValue = a.total_amount || 0
+          bValue = b.total_amount || 0
+          break
+        case 'delivery_notes':
+          aValue = a.delivery_notes || ''
+          bValue = b.delivery_notes || ''
+          break
+        case 'created_at':
+          aValue = new Date(a.created_at).getTime()
+          bValue = new Date(b.created_at).getTime()
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return result
+  }, [orders, filters, sortConfig])
+
+  const SortIcon = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="ml-2 h-4 w-4 text-muted-foreground/50" />
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="ml-2 h-4 w-4" />
+      : <ArrowDown className="ml-2 h-4 w-4" />
+  }
 
   return (
     <div className="space-y-6">
@@ -147,76 +276,169 @@ export default function Orders() {
       <Card>
         <CardHeader>
           <CardTitle>Gestión de Pedidos</CardTitle>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center">
-             <Input 
-               placeholder="Buscar por ID o Destinatario..." 
-               value={searchTerm}
-               onChange={(e) => setSearchTerm(e.target.value)}
-               className="max-w-sm"
-             />
-             <select 
-               className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:w-[200px]"
-               value={filterStatus}
-               onChange={(e) => setFilterStatus(e.target.value)}
-             >
-               <option value="all">Todos los estados</option>
-               <option value="pending">Pendiente</option>
-               <option value="in_transit">En Ruta</option>
-               <option value="delivered">Entregado</option>
-             </select>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Utiliza los filtros en la cabecera de la tabla para buscar pedidos específicos.
+          </p>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-4">Cargando pedidos...</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Destinatario</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Repartidor Asignado</TableHead>
-                  <TableHead>Tarifa</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredOrders.length === 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[1200px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center">No se encontraron pedidos.</TableCell>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('company')}>
+                      <div className="flex items-center">Empresa <SortIcon columnKey="company" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('recipient')}>
+                      <div className="flex items-center">Destinatario <SortIcon columnKey="recipient" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('status')}>
+                      <div className="flex items-center">Estado <SortIcon columnKey="status" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('courier')}>
+                      <div className="flex items-center">Motorizado <SortIcon columnKey="courier" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('tariff')}>
+                      <div className="flex items-center">Tarifa <SortIcon columnKey="tariff" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('total_amount')}>
+                      <div className="flex items-center">Monto Total <SortIcon columnKey="total_amount" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('payment_method')}>
+                      <div className="flex items-center">Método Pago <SortIcon columnKey="payment_method" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('delivery_notes')}>
+                      <div className="flex items-center">Notas Logística <SortIcon columnKey="delivery_notes" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('created_at')}>
+                      <div className="flex items-center">Fecha <SortIcon columnKey="created_at" /></div>
+                    </TableHead>
+                    <TableHead className="text-right whitespace-nowrap">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-mono text-xs">{order.id.slice(0, 8)}...</TableCell>
-                      <TableCell>{order.companies?.name || 'N/A'}</TableCell>
-                      <TableCell>{order.recipient_name}</TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          order.status === 'delivered' ? 'bg-green-100 text-green-800' :
-                          order.status === 'in_transit' ? 'bg-blue-100 text-blue-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {order.status === 'delivered' ? 'Entregado' :
-                           order.status === 'in_transit' ? 'En Ruta' : 'Pendiente'}
-                        </span>
-                      </TableCell>
-                      <TableCell>{order.assigned_courier_profile?.full_name || 'Sin asignar'}</TableCell>
-                      <TableCell>{order.tariff || '-'}</TableCell>
-                      <TableCell>{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: es })}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(order)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                  {/* Filter Row */}
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Empresa..." 
+                        value={filters.company}
+                        onChange={(e) => setFilters(prev => ({ ...prev, company: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Destinatario..." 
+                        value={filters.recipient}
+                        onChange={(e) => setFilters(prev => ({ ...prev, recipient: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <select 
+                        className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-2 py-1 text-xs min-w-[100px]"
+                        value={filters.status}
+                        onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                      >
+                        <option value="all">Todos</option>
+                        <option value="pending">Pendiente</option>
+                        <option value="in_transit">En Ruta</option>
+                        <option value="delivered">Entregado</option>
+                      </select>
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Motorizado..." 
+                        value={filters.courier}
+                        onChange={(e) => setFilters(prev => ({ ...prev, courier: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Tarifa..." 
+                        value={filters.tariff}
+                        onChange={(e) => setFilters(prev => ({ ...prev, tariff: e.target.value }))}
+                        className="h-8 text-xs min-w-[80px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Monto..." 
+                        value={filters.total_amount}
+                        onChange={(e) => setFilters(prev => ({ ...prev, total_amount: e.target.value }))}
+                        className="h-8 text-xs min-w-[80px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Método..." 
+                        value={filters.payment_method}
+                        onChange={(e) => setFilters(prev => ({ ...prev, payment_method: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Notas..." 
+                        value={filters.delivery_notes}
+                        onChange={(e) => setFilters(prev => ({ ...prev, delivery_notes: e.target.value }))}
+                        className="h-8 text-xs min-w-[120px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="dd/mm/yyyy" 
+                        value={filters.date}
+                        onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2"></TableCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAndSortedOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                        No se encontraron pedidos con los filtros seleccionados.
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    filteredAndSortedOrders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell className="whitespace-nowrap">{order.companies?.name || 'N/A'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.recipient_name}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            order.status === 'delivered' ? 'bg-green-100 text-green-800' :
+                            order.status === 'in_transit' ? 'bg-blue-100 text-blue-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {order.status === 'delivered' ? 'Entregado' :
+                             order.status === 'in_transit' ? 'En Ruta' : 'Pendiente'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{order.assigned_courier_profile?.full_name || 'Sin asignar'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.tariff || '-'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.total_amount ? `S/ ${order.total_amount.toFixed(2)}` : '-'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.payment_method || '-'}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={order.delivery_notes || ''}>
+                          {order.delivery_notes || '-'}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: es })}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(order)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -226,7 +448,14 @@ export default function Orders() {
           <DialogHeader>
             <DialogTitle>Gestionar Pedido #{editingOrder?.id.slice(0, 8)}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onUpdateOrder)} className="space-y-6">
+          
+          {updateError && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200">
+              {updateError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit(onUpdateOrder, (errors) => console.error("Form validation errors:", errors))} className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="assigned_courier">Asignar Motorizado</Label>

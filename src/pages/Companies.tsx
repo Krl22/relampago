@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -10,7 +10,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
-import { Edit, Plus, Search, Loader2 } from 'lucide-react'
+import { Edit, Plus, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -26,12 +26,36 @@ const companySchema = z.object({
 
 type CompanyFormValues = z.infer<typeof companySchema>
 
+type SortConfig = {
+  key: string
+  direction: 'asc' | 'desc'
+}
+
+type FilterConfig = {
+  name: string
+  ruc: string
+  phone: string
+  district: string
+  address: string
+  date: string
+}
+
 export default function Companies() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
+
+  // Filtering and Sorting State
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'created_at', direction: 'desc' })
+  const [filters, setFilters] = useState<FilterConfig>({
+    name: '',
+    ruc: '',
+    phone: '',
+    district: '',
+    address: '',
+    date: ''
+  })
 
   const {
     register,
@@ -98,11 +122,6 @@ export default function Companies() {
     }
   }
 
-  const filteredCompanies = companies.filter(company =>
-    company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (company.ruc && company.ruc.includes(searchTerm))
-  )
-
   const openNewDialog = () => {
     setEditingCompany(null)
     setIsDialogOpen(true)
@@ -111,6 +130,79 @@ export default function Companies() {
   const openEditDialog = (company: Company) => {
     setEditingCompany(company)
     setIsDialogOpen(true)
+  }
+
+  const handleSort = (key: string) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const filteredAndSortedCompanies = useMemo(() => {
+    let result = [...companies]
+
+    // Filtering
+    result = result.filter(company => {
+      const matchName = company.name.toLowerCase().includes(filters.name.toLowerCase())
+      const matchRuc = (company.ruc || '').includes(filters.ruc)
+      const matchPhone = (company.phone || '').includes(filters.phone)
+      const matchDistrict = (company.district || '').toLowerCase().includes(filters.district.toLowerCase())
+      const matchAddress = (company.address || '').toLowerCase().includes(filters.address.toLowerCase())
+      
+      const companyDate = format(new Date(company.created_at), 'dd/MM/yyyy', { locale: es })
+      const matchDate = filters.date === '' || companyDate.includes(filters.date)
+
+      return matchName && matchRuc && matchPhone && matchDistrict && matchAddress && matchDate
+    })
+
+    // Sorting
+    result.sort((a, b) => {
+      let aValue: any = ''
+      let bValue: any = ''
+
+      switch (sortConfig.key) {
+        case 'name':
+          aValue = a.name
+          bValue = b.name
+          break
+        case 'ruc':
+          aValue = a.ruc || ''
+          bValue = b.ruc || ''
+          break
+        case 'phone':
+          aValue = a.phone || ''
+          bValue = b.phone || ''
+          break
+        case 'district':
+          aValue = a.district || ''
+          bValue = b.district || ''
+          break
+        case 'address':
+          aValue = a.address || ''
+          bValue = b.address || ''
+          break
+        case 'created_at':
+          aValue = new Date(a.created_at).getTime()
+          bValue = new Date(b.created_at).getTime()
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return result
+  }, [companies, filters, sortConfig])
+
+  const SortIcon = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="ml-2 h-4 w-4 text-muted-foreground/50" />
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="ml-2 h-4 w-4" />
+      : <ArrowDown className="ml-2 h-4 w-4" />
   }
 
   return (
@@ -126,58 +218,120 @@ export default function Companies() {
       <Card>
         <CardHeader>
           <CardTitle>Listado de Clientes</CardTitle>
-          <div className="relative max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nombre o RUC..."
-              className="pl-8"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Utiliza los filtros en la cabecera de la tabla para buscar empresas específicas.
+          </p>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-4">Cargando empresas...</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>RUC</TableHead>
-                  <TableHead>Teléfono</TableHead>
-                  <TableHead>Distrito</TableHead>
-                  <TableHead>Dirección</TableHead>
-                  <TableHead>Fecha Registro</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompanies.length === 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[1000px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center">No se encontraron empresas.</TableCell>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('name')}>
+                      <div className="flex items-center">Nombre <SortIcon columnKey="name" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('ruc')}>
+                      <div className="flex items-center">RUC <SortIcon columnKey="ruc" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('phone')}>
+                      <div className="flex items-center">Teléfono <SortIcon columnKey="phone" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('district')}>
+                      <div className="flex items-center">Distrito <SortIcon columnKey="district" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('address')}>
+                      <div className="flex items-center">Dirección <SortIcon columnKey="address" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('created_at')}>
+                      <div className="flex items-center">Fecha Registro <SortIcon columnKey="created_at" /></div>
+                    </TableHead>
+                    <TableHead className="text-right whitespace-nowrap">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredCompanies.map((company) => (
-                    <TableRow key={company.id}>
-                      <TableCell className="font-medium">{company.name}</TableCell>
-                      <TableCell>{company.ruc || '-'}</TableCell>
-                      <TableCell>{company.phone || '-'}</TableCell>
-                      <TableCell>{company.district || '-'}</TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={company.address || ''}>
-                        {company.address || '-'}
-                      </TableCell>
-                      <TableCell>{format(new Date(company.created_at), 'dd/MM/yyyy', { locale: es })}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(company)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                  {/* Filter Row */}
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Nombre..." 
+                        value={filters.name}
+                        onChange={(e) => setFilters(prev => ({ ...prev, name: e.target.value }))}
+                        className="h-8 text-xs min-w-[120px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar RUC..." 
+                        value={filters.ruc}
+                        onChange={(e) => setFilters(prev => ({ ...prev, ruc: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Tel..." 
+                        value={filters.phone}
+                        onChange={(e) => setFilters(prev => ({ ...prev, phone: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Distrito..." 
+                        value={filters.district}
+                        onChange={(e) => setFilters(prev => ({ ...prev, district: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Dirección..." 
+                        value={filters.address}
+                        onChange={(e) => setFilters(prev => ({ ...prev, address: e.target.value }))}
+                        className="h-8 text-xs min-w-[150px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="dd/mm/yyyy" 
+                        value={filters.date}
+                        onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2"></TableCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAndSortedCompanies.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        No se encontraron empresas con los filtros seleccionados.
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    filteredAndSortedCompanies.map((company) => (
+                      <TableRow key={company.id}>
+                        <TableCell className="font-medium whitespace-nowrap">{company.name}</TableCell>
+                        <TableCell className="whitespace-nowrap">{company.ruc || '-'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{company.phone || '-'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{company.district || '-'}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={company.address || ''}>
+                          {company.address || '-'}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{format(new Date(company.created_at), 'dd/MM/yyyy', { locale: es })}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(company)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

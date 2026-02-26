@@ -10,6 +10,7 @@ import MyStock from './pages/MyStock'
 import PublicOrderPage from './pages/PublicOrderPage'
 import Companies from './pages/Companies'
 import Stock from './pages/Stock'
+import Couriers from './pages/Couriers'
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
               <Route element={<ProtectedRoute allowedRoles={['admin', 'staff']} />}>
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/companies" element={<Companies />} />
+                <Route path="/couriers" element={<Couriers />} />
                 <Route path="/stock" element={<Stock />} />
               </Route>
 

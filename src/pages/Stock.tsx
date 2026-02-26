@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -10,7 +10,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
-import { Edit, Plus, Search, Loader2, Trash2 } from 'lucide-react'
+import { Edit, Plus, Search, Loader2, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -29,14 +29,35 @@ const stockSchema = z.object({
 
 type StockFormValues = z.infer<typeof stockSchema>
 
+type SortConfig = {
+  key: string
+  direction: 'asc' | 'desc'
+}
+
+type FilterConfig = {
+  company: string
+  product_name: string
+  quantity: string
+  unit: string
+  date: string
+}
+
 export default function Stock() {
   const [stock, setStock] = useState<StockItem[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<StockItem | null>(null)
+
+  // Filtering and Sorting State
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'created_at', direction: 'desc' })
+  const [filters, setFilters] = useState<FilterConfig>({
+    company: '',
+    product_name: '',
+    quantity: '',
+    unit: '',
+    date: ''
+  })
 
   const {
     register,
@@ -124,15 +145,6 @@ export default function Stock() {
     }
   }
 
-  const filteredStock = stock.filter(item => {
-    const matchesSearch = item.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (item.companies?.name && item.companies.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    
-    const matchesCompany = selectedCompanyId === 'all' || item.company_id === selectedCompanyId
-
-    return matchesSearch && matchesCompany
-  })
-
   const openNewDialog = () => {
     setEditingItem(null)
     setIsDialogOpen(true)
@@ -141,6 +153,74 @@ export default function Stock() {
   const openEditDialog = (item: StockItem) => {
     setEditingItem(item)
     setIsDialogOpen(true)
+  }
+
+  const handleSort = (key: string) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const filteredAndSortedStock = useMemo(() => {
+    let result = [...stock]
+
+    // Filtering
+    result = result.filter(item => {
+      const matchCompany = (item.companies?.name || '').toLowerCase().includes(filters.company.toLowerCase())
+      const matchProduct = item.product_name.toLowerCase().includes(filters.product_name.toLowerCase())
+      const matchQuantity = filters.quantity === '' || item.quantity.toString().includes(filters.quantity)
+      const matchUnit = (item.unit || '').toLowerCase().includes(filters.unit.toLowerCase())
+      
+      const itemDate = format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es })
+      const matchDate = filters.date === '' || itemDate.includes(filters.date)
+
+      return matchCompany && matchProduct && matchQuantity && matchUnit && matchDate
+    })
+
+    // Sorting
+    result.sort((a, b) => {
+      let aValue: any = ''
+      let bValue: any = ''
+
+      switch (sortConfig.key) {
+        case 'company':
+          aValue = a.companies?.name || ''
+          bValue = b.companies?.name || ''
+          break
+        case 'product_name':
+          aValue = a.product_name
+          bValue = b.product_name
+          break
+        case 'quantity':
+          aValue = a.quantity
+          bValue = b.quantity
+          break
+        case 'unit':
+          aValue = a.unit || ''
+          bValue = b.unit || ''
+          break
+        case 'created_at':
+          aValue = new Date(a.created_at).getTime()
+          bValue = new Date(b.created_at).getTime()
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+
+    return result
+  }, [stock, filters, sortConfig])
+
+  const SortIcon = ({ columnKey }: { columnKey: string }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="ml-2 h-4 w-4 text-muted-foreground/50" />
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="ml-2 h-4 w-4" />
+      : <ArrowDown className="ml-2 h-4 w-4" />
   }
 
   return (
@@ -156,71 +236,111 @@ export default function Stock() {
       <Card>
         <CardHeader>
           <CardTitle>Listado de Productos</CardTitle>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center">
-            <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por producto..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <select
-              className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:w-[250px]"
-              value={selectedCompanyId}
-              onChange={(e) => setSelectedCompanyId(e.target.value)}
-            >
-              <option value="all">Todas las empresas</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Utiliza los filtros en la cabecera de la tabla para buscar productos específicos.
+          </p>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-4">Cargando inventario...</div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Cantidad</TableHead>
-                  <TableHead>Unidad</TableHead>
-                  <TableHead>Última Actualización</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStock.length === 0 ? (
+            <div className="rounded-md border overflow-x-auto">
+              <Table className="min-w-[800px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center">No se encontraron productos.</TableCell>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('company')}>
+                      <div className="flex items-center">Empresa <SortIcon columnKey="company" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('product_name')}>
+                      <div className="flex items-center">Producto <SortIcon columnKey="product_name" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('quantity')}>
+                      <div className="flex items-center">Cantidad <SortIcon columnKey="quantity" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('unit')}>
+                      <div className="flex items-center">Unidad <SortIcon columnKey="unit" /></div>
+                    </TableHead>
+                    <TableHead className="cursor-pointer whitespace-nowrap" onClick={() => handleSort('created_at')}>
+                      <div className="flex items-center">Última Actualización <SortIcon columnKey="created_at" /></div>
+                    </TableHead>
+                    <TableHead className="text-right whitespace-nowrap">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredStock.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium text-blue-600">
-                        {item.companies?.name || 'Sin asignar'}
-                      </TableCell>
-                      <TableCell>{item.product_name}</TableCell>
-                      <TableCell className="font-bold">{item.quantity}</TableCell>
-                      <TableCell>{item.unit || '-'}</TableCell>
-                      <TableCell>{format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es })}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => handleDelete(item.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                  {/* Filter Row */}
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Empresa..." 
+                        value={filters.company}
+                        onChange={(e) => setFilters(prev => ({ ...prev, company: e.target.value }))}
+                        className="h-8 text-xs min-w-[120px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Filtrar Producto..." 
+                        value={filters.product_name}
+                        onChange={(e) => setFilters(prev => ({ ...prev, product_name: e.target.value }))}
+                        className="h-8 text-xs min-w-[120px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Cant..." 
+                        value={filters.quantity}
+                        onChange={(e) => setFilters(prev => ({ ...prev, quantity: e.target.value }))}
+                        className="h-8 text-xs min-w-[60px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="Unidad..." 
+                        value={filters.unit}
+                        onChange={(e) => setFilters(prev => ({ ...prev, unit: e.target.value }))}
+                        className="h-8 text-xs min-w-[80px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input 
+                        placeholder="dd/mm/yyyy" 
+                        value={filters.date}
+                        onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2"></TableCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredAndSortedStock.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No se encontraron productos con los filtros seleccionados.
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    filteredAndSortedStock.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium text-blue-600 whitespace-nowrap">
+                          {item.companies?.name || 'Sin asignar'}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{item.product_name}</TableCell>
+                        <TableCell className="font-bold whitespace-nowrap">{item.quantity}</TableCell>
+                        <TableCell className="whitespace-nowrap">{item.unit || '-'}</TableCell>
+                        <TableCell className="whitespace-nowrap">{format(new Date(item.created_at), 'dd/MM/yyyy', { locale: es })}</TableCell>
+                        <TableCell className="text-right space-x-2 whitespace-nowrap">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => handleDelete(item.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -237,7 +357,7 @@ export default function Stock() {
                 id="company_id"
                 {...register('company_id')}
                 className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!!editingItem} // Opcional: bloquear cambio de empresa al editar
+                disabled={!!editingItem}
               >
                 <option value="">Seleccionar empresa...</option>
                 {companies.map((c) => (

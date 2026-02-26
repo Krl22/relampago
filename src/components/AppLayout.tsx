@@ -9,7 +9,8 @@ import {
   LogOut, 
   Menu, 
   X,
-  Building2
+  Building2,
+  Users
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { cn } from '@/lib/utils'
@@ -44,6 +45,12 @@ export default function AppLayout() {
       label: 'Empresas',
       href: '/companies',
       icon: Building2,
+      roles: ['admin', 'staff'],
+    },
+    {
+      label: 'Motorizados',
+      href: '/couriers',
+      icon: Users,
       roles: ['admin', 'staff'],
     },
     {
