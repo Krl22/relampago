@@ -11,13 +11,14 @@ import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
 import { Textarea } from '../components/ui/textarea'
-import { Edit, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Edit, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ImageIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 type Order = Database['public']['Tables']['orders']['Row'] & {
   companies: { name: string } | null
   assigned_courier_profile: { full_name: string | null } | null
+  deliveries: { proof_image_url: string | null }[]
 }
 
 type Profile = Database['public']['Tables']['profiles']['Row']
@@ -58,6 +59,7 @@ export default function Orders() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   // Filtering and Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'created_at', direction: 'desc' })
@@ -115,7 +117,8 @@ export default function Orders() {
         .select(`
           *,
           companies (name),
-          assigned_courier_profile:profiles!assigned_courier (full_name)
+          assigned_courier_profile:profiles!assigned_courier (full_name),
+          deliveries (proof_image_url)
         `)
         .order('created_at', { ascending: false })
 
@@ -429,9 +432,21 @@ export default function Orders() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{format(new Date(order.created_at), 'dd/MM/yyyy HH:mm', { locale: es })}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
-                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(order)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            {order.deliveries && order.deliveries.length > 0 && order.deliveries[0].proof_image_url && (
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Ver prueba de entrega"
+                                onClick={() => setPreviewImage(order.deliveries[0].proof_image_url)}
+                              >
+                                <ImageIcon className="h-4 w-4 text-blue-600" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(order)}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -533,6 +548,27 @@ export default function Orders() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Dialog */}
+      <Dialog open={!!previewImage} onOpenChange={() => setPreviewImage(null)}>
+        <DialogContent className="max-w-2xl p-0 overflow-hidden bg-transparent border-0 shadow-none">
+          {previewImage && (
+            <div className="relative">
+              <img 
+                src={previewImage} 
+                alt="Prueba de entrega" 
+                className="w-full h-auto rounded-lg shadow-2xl"
+              />
+              <Button 
+                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white rounded-full p-2 h-8 w-8"
+                onClick={() => setPreviewImage(null)}
+              >
+                ×
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
