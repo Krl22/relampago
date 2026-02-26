@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog'
 import { Label } from '../components/ui/label'
-import { Loader2, Plus, UserPlus, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Loader2, Plus, UserPlus, ShieldAlert, ArrowUpDown, ArrowUp, ArrowDown, Edit, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -28,9 +28,12 @@ export default function Couriers() {
   const [couriers, setCouriers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
+  const [editingCourier, setEditingCourier] = useState<Profile | null>(null)
+  const [editName, setEditName] = useState('')
 
   // Filtering and Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'created_at', direction: 'desc' })
@@ -147,6 +150,50 @@ export default function Couriers() {
       setCreateError(error.message || 'Error al crear el motorizado.')
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const handleDeleteCourier = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este motorizado? Esta acción no se puede deshacer.')) return
+
+    try {
+      // Delete from profiles (auth user deletion requires admin API which is not available in client)
+      // We can only delete the profile data for now
+      const { error } = await supabase.from('profiles').delete().eq('id', id)
+      
+      if (error) throw error
+
+      setCouriers(prev => prev.filter(c => c.id !== id))
+    } catch (error: any) {
+      console.error('Error deleting courier:', error)
+      alert('Error al eliminar: ' + error.message)
+    }
+  }
+
+  const openEditDialog = (courier: Profile) => {
+    setEditingCourier(courier)
+    setEditName(courier.full_name || '')
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdateCourier = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingCourier) return
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ full_name: editName })
+        .eq('id', editingCourier.id)
+
+      if (error) throw error
+
+      setCouriers(prev => prev.map(c => c.id === editingCourier.id ? { ...c, full_name: editName } : c))
+      setIsEditDialogOpen(false)
+      setEditingCourier(null)
+    } catch (error: any) {
+      console.error('Error updating courier:', error)
+      alert('Error al actualizar: ' + error.message)
     }
   }
 
@@ -307,6 +354,7 @@ export default function Couriers() {
                     <TableHead className="cursor-pointer" onClick={() => handleSort('created_at')}>
                       <div className="flex items-center">Fecha Registro <SortIcon columnKey="created_at" /></div>
                     </TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -327,12 +375,13 @@ export default function Couriers() {
                         className="h-8 text-xs"
                       />
                     </TableCell>
+                    <TableCell className="p-2"></TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredAndSortedCouriers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                         No hay motorizados registrados con los filtros seleccionados.
                       </TableCell>
                     </TableRow>
@@ -346,6 +395,14 @@ export default function Couriers() {
                           </span>
                         </TableCell>
                         <TableCell>{format(new Date(courier.created_at), 'dd/MM/yyyy', { locale: es })}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(courier)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => handleDeleteCourier(courier.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -355,6 +412,32 @@ export default function Couriers() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Motorizado</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUpdateCourier} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="editFullName">Nombre Completo</Label>
+              <Input
+                id="editFullName"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Ej. Juan Pérez"
+                required
+              />
+            </div>
+            
+            <div className="flex justify-end pt-4">
+              <Button type="submit">
+                Guardar Cambios
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

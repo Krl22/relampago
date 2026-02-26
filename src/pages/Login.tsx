@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Zap } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -39,18 +39,27 @@ export default function Login() {
   }
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Relámpago Courier</CardTitle>
-          <CardDescription className="text-center">
-            Ingresa tu correo y contraseña para acceder
+    <div className="flex h-screen w-full items-center justify-center bg-primary p-4 relative overflow-hidden">
+      {/* Decorative background elements */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute -top-[20%] -right-[10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-[10%] -left-[10%] w-[40%] h-[40%] bg-secondary/20 rounded-full blur-3xl"></div>
+      </div>
+
+      <Card className="w-full max-w-md shadow-2xl border-0 z-10">
+        <CardHeader className="space-y-3 text-center pb-8 pt-8">
+          <div className="mx-auto bg-primary/10 p-3 rounded-full w-fit mb-2">
+            <Zap className="h-8 w-8 text-primary fill-primary" />
+          </div>
+          <CardTitle className="text-3xl font-bold text-primary">Relámpago Courier</CardTitle>
+          <CardDescription className="text-base">
+            Ingresa a tu cuenta para gestionar envíos
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4">
             {error && (
-              <div className="flex items-center gap-2 rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+              <div className="flex items-center gap-2 rounded-md bg-destructive/15 p-3 text-sm text-destructive font-medium animate-in fade-in slide-in-from-top-2">
                 <AlertCircle className="h-4 w-4" />
                 <span>{error}</span>
               </div>
@@ -64,22 +73,31 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                className="h-11"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Contraseña</Label>
+              </div>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                className="h-11"
               />
             </div>
           </CardContent>
-          <CardFooter>
-            <Button className="w-full" type="submit" disabled={loading}>
-              {loading ? 'Iniciando sesión...' : 'Ingresar'}
+          <CardFooter className="pb-8">
+            <Button className="w-full h-11 text-base font-semibold shadow-lg hover:shadow-xl transition-all" type="submit" disabled={loading}>
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Iniciando...
+                </div>
+              ) : 'Ingresar'}
             </Button>
           </CardFooter>
         </form>
