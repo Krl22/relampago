@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
-import { Truck, MapPin, Phone, User, Camera, Check } from 'lucide-react'
+import { Truck, MapPin, Phone, User, Camera, Check, Image as ImageIcon } from 'lucide-react'
 import { useAuth } from '../components/AuthProvider'
 
 type Order = Database['public']['Tables']['orders']['Row']
@@ -14,7 +14,8 @@ export default function MyDeliveries() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (user) {
@@ -214,32 +215,52 @@ export default function MyDeliveries() {
               <CardTitle>Confirmar Entrega</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-gray-500">
-                Sube una foto del paquete entregado o la firma del cliente para completar el pedido.
+              <p className="text-sm text-gray-500 text-center">
+                Selecciona una opción para subir la prueba de entrega.
               </p>
               
-              <div 
-                className="border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {uploading ? (
-                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                ) : (
-                  <>
-                    <Camera className="h-10 w-10 text-gray-400 mb-2" />
-                    <span className="text-sm font-medium text-gray-600">Tomar foto / Subir archivo</span>
-                  </>
-                )}
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
-                  accept="image/*" 
-                  capture="environment"
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                />
-              </div>
+              {uploading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div 
+                    className="border-2 border-dashed border-blue-200 bg-blue-50 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100 transition-colors gap-2"
+                    onClick={() => cameraInputRef.current?.click()}
+                  >
+                    <Camera className="h-8 w-8 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800 text-center">Tomar Foto</span>
+                  </div>
+
+                  <div 
+                    className="border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors gap-2"
+                    onClick={() => galleryInputRef.current?.click()}
+                  >
+                    <ImageIcon className="h-8 w-8 text-gray-600" />
+                    <span className="text-sm font-medium text-gray-800 text-center">Subir de Galería</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Hidden Inputs */}
+              <input 
+                type="file" 
+                ref={cameraInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                capture="environment"
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
+              <input 
+                type="file" 
+                ref={galleryInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
             </CardContent>
             <CardFooter>
               <Button variant="outline" className="w-full" onClick={() => setSelectedOrder(null)} disabled={uploading}>
