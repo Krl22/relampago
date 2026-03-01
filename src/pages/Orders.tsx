@@ -27,14 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import {
@@ -43,7 +35,6 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Settings,
   Trash2,
   CheckSquare,
   Camera,
@@ -86,6 +77,10 @@ type FilterConfig = {
   tariff: string;
   payment_method: string;
   total_amount: string;
+  amount_to_collect: string;
+  product_details: string;
+  recipient_phone: string;
+  comments: string;
   delivery_notes: string;
   date: string;
 };
@@ -105,6 +100,24 @@ export default function Orders() {
   const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
   const [bulkCourier, setBulkCourier] = useState<string>("");
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    order: Order | null;
+  } | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [rowEdit, setRowEdit] = useState<{
+    assigned_courier: string | null;
+    status: "pending" | "in_transit" | "delivered";
+    payment_method: string | null;
+    tariff: string | null;
+    total_amount: number | null;
+    delivery_notes: string | null;
+    amount_to_collect: number | null;
+    product_details: string | null;
+    recipient_phone: string;
+    comments: string | null;
+  } | null>(null);
 
   // Filtering and Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -122,6 +135,10 @@ export default function Orders() {
     tariff: "",
     payment_method: "",
     total_amount: "",
+    amount_to_collect: "",
+    product_details: "",
+    recipient_phone: "",
+    comments: "",
     delivery_notes: "",
     date: "",
   });
@@ -235,11 +252,6 @@ export default function Orders() {
     }
   };
 
-  const openEditDialog = (order: Order) => {
-    setEditingOrder(order);
-    setIsDialogOpen(true);
-  };
-
   const handleDeleteOrder = async (id: string) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar este pedido?"))
       return;
@@ -298,6 +310,20 @@ export default function Orders() {
       const matchTotalAmount =
         filters.total_amount === "" ||
         (order.total_amount?.toString() || "").includes(filters.total_amount);
+      const matchAmountToCollect =
+        filters.amount_to_collect === "" ||
+        (order.amount_to_collect?.toString() || "").includes(
+          filters.amount_to_collect,
+        );
+      const matchProductDetails = (order.product_details || "")
+        .toLowerCase()
+        .includes(filters.product_details.toLowerCase());
+      const matchRecipientPhone = (order.recipient_phone || "")
+        .toLowerCase()
+        .includes(filters.recipient_phone.toLowerCase());
+      const matchComments = (order.comments || "")
+        .toLowerCase()
+        .includes(filters.comments.toLowerCase());
       const matchDeliveryNotes = (order.delivery_notes || "")
         .toLowerCase()
         .includes(filters.delivery_notes.toLowerCase());
@@ -318,6 +344,10 @@ export default function Orders() {
         matchDate &&
         matchPaymentMethod &&
         matchTotalAmount &&
+        matchAmountToCollect &&
+        matchProductDetails &&
+        matchRecipientPhone &&
+        matchComments &&
         matchDeliveryNotes
       );
     });
@@ -336,6 +366,10 @@ export default function Orders() {
           aValue = a.recipient_name;
           bValue = b.recipient_name;
           break;
+        case "recipient_phone":
+          aValue = a.recipient_phone;
+          bValue = b.recipient_phone;
+          break;
         case "address":
           aValue = a.destination_address;
           bValue = b.destination_address;
@@ -343,6 +377,10 @@ export default function Orders() {
         case "district":
           aValue = a.destination_district || "";
           bValue = b.destination_district || "";
+          break;
+        case "product_details":
+          aValue = a.product_details || "";
+          bValue = b.product_details || "";
           break;
         case "status":
           aValue = a.status;
@@ -364,9 +402,17 @@ export default function Orders() {
           aValue = a.total_amount || 0;
           bValue = b.total_amount || 0;
           break;
+        case "amount_to_collect":
+          aValue = a.amount_to_collect || 0;
+          bValue = b.amount_to_collect || 0;
+          break;
         case "delivery_notes":
           aValue = a.delivery_notes || "";
           bValue = b.delivery_notes || "";
+          break;
+        case "comments":
+          aValue = a.comments || "";
+          bValue = b.comments || "";
           break;
         case "created_at":
           aValue = new Date(a.created_at).getTime();
@@ -435,6 +481,55 @@ export default function Orders() {
     }
   };
 
+  const startInlineEdit = (order: Order) => {
+    setEditingRowId(order.id);
+    setRowEdit({
+      assigned_courier: order.assigned_courier,
+      status: order.status,
+      payment_method: order.payment_method,
+      tariff: order.tariff,
+      total_amount: order.total_amount,
+      delivery_notes: order.delivery_notes,
+      amount_to_collect: order.amount_to_collect,
+      product_details: order.product_details,
+      recipient_phone: order.recipient_phone,
+      comments: order.comments,
+    });
+  };
+
+  const saveInlineEdit = async () => {
+    if (!editingRowId || !rowEdit) return;
+    try {
+      const { data: updatedData, error } = await supabase
+        .from("orders")
+        .update({
+          assigned_courier: rowEdit.assigned_courier,
+          status: rowEdit.status,
+          payment_method: rowEdit.payment_method,
+          tariff: rowEdit.tariff,
+          total_amount: rowEdit.total_amount,
+          delivery_notes: rowEdit.delivery_notes,
+          amount_to_collect: rowEdit.amount_to_collect,
+          product_details: rowEdit.product_details,
+          recipient_phone: rowEdit.recipient_phone,
+          comments: rowEdit.comments,
+        })
+        .eq("id", editingRowId)
+        .select();
+
+      if (error) throw error;
+      if (!updatedData || updatedData.length === 0)
+        throw new Error("No se actualizó ningún registro.");
+
+      setEditingRowId(null);
+      setRowEdit(null);
+      fetchOrders();
+    } catch (error) {
+      console.error("Error updating inline order:", error);
+      alert((error as Error).message || "Error al guardar cambios.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -443,7 +538,26 @@ export default function Orders() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Gestión de Pedidos</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>Gestión de Pedidos</CardTitle>
+            {editingRowId && rowEdit && (
+              <div className="flex gap-2 items-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingRowId(null);
+                    setRowEdit(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={saveInlineEdit}>
+                  Guardar Cambios
+                </Button>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             Utiliza los filtros en la cabecera de la tabla para buscar pedidos
             específicos.
@@ -478,9 +592,6 @@ export default function Orders() {
               <Table className="min-w-[1200px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[50px] text-center">
-                      <Settings className="mx-auto w-4 h-4" />
-                    </TableHead>
                     {isSelectionMode && (
                       <TableHead className="w-[40px] px-4">
                         <Checkbox
@@ -514,6 +625,14 @@ export default function Orders() {
                     </TableHead>
                     <TableHead
                       className="whitespace-nowrap cursor-pointer"
+                      onClick={() => handleSort("recipient_phone")}
+                    >
+                      <div className="flex items-center">
+                        Teléfono <SortIcon columnKey="recipient_phone" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="whitespace-nowrap cursor-pointer"
                       onClick={() => handleSort("address")}
                     >
                       <div className="flex items-center">
@@ -526,6 +645,14 @@ export default function Orders() {
                     >
                       <div className="flex items-center">
                         Distrito <SortIcon columnKey="district" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="whitespace-nowrap cursor-pointer"
+                      onClick={() => handleSort("product_details")}
+                    >
+                      <div className="flex items-center">
+                        Detalles <SortIcon columnKey="product_details" />
                       </div>
                     </TableHead>
                     <TableHead
@@ -554,6 +681,14 @@ export default function Orders() {
                     </TableHead>
                     <TableHead
                       className="whitespace-nowrap cursor-pointer"
+                      onClick={() => handleSort("amount_to_collect")}
+                    >
+                      <div className="flex items-center">
+                        A Cobrar <SortIcon columnKey="amount_to_collect" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="whitespace-nowrap cursor-pointer"
                       onClick={() => handleSort("total_amount")}
                     >
                       <div className="flex items-center">
@@ -566,6 +701,14 @@ export default function Orders() {
                     >
                       <div className="flex items-center">
                         Método Pago <SortIcon columnKey="payment_method" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="whitespace-nowrap cursor-pointer"
+                      onClick={() => handleSort("comments")}
+                    >
+                      <div className="flex items-center">
+                        Comentarios <SortIcon columnKey="comments" />
                       </div>
                     </TableHead>
                     <TableHead
@@ -587,7 +730,6 @@ export default function Orders() {
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableCell className="p-2 w-[50px]"></TableCell>
                     {isSelectionMode && (
                       <TableCell className="p-2 w-[40px]"></TableCell>
                     )}
@@ -619,6 +761,19 @@ export default function Orders() {
                     </TableCell>
                     <TableCell className="p-2">
                       <Input
+                        placeholder="Filtrar Teléfono..."
+                        value={filters.recipient_phone}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            recipient_phone: e.target.value,
+                          }))
+                        }
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input
                         placeholder="Filtrar Dirección..."
                         value={filters.address}
                         onChange={(e) =>
@@ -638,6 +793,19 @@ export default function Orders() {
                           setFilters((prev) => ({
                             ...prev,
                             district: e.target.value,
+                          }))
+                        }
+                        className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input
+                        placeholder="Filtrar Detalles..."
+                        value={filters.product_details}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            product_details: e.target.value,
                           }))
                         }
                         className="h-8 text-xs min-w-[100px]"
@@ -688,6 +856,19 @@ export default function Orders() {
                     </TableCell>
                     <TableCell className="p-2">
                       <Input
+                        placeholder="Filtrar Cobro..."
+                        value={filters.amount_to_collect}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            amount_to_collect: e.target.value,
+                          }))
+                        }
+                        className="h-8 text-xs min-w-[80px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input
                         placeholder="Filtrar Monto..."
                         value={filters.total_amount}
                         onChange={(e) =>
@@ -710,6 +891,19 @@ export default function Orders() {
                           }))
                         }
                         className="h-8 text-xs min-w-[100px]"
+                      />
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Input
+                        placeholder="Filtrar Comentarios..."
+                        value={filters.comments}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            comments: e.target.value,
+                          }))
+                        }
+                        className="h-8 text-xs min-w-[120px]"
                       />
                     </TableCell>
                     <TableCell className="p-2">
@@ -752,58 +946,17 @@ export default function Orders() {
                     </TableRow>
                   ) : (
                     filteredAndSortedOrders.map((order) => (
-                      <TableRow key={order.id}>
-                        <TableCell className="w-[50px] text-center">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="w-8 h-8"
-                              >
-                                <Settings className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                              <DropdownMenuItem
-                                onClick={() => openEditDialog(order)}
-                              >
-                                <Edit className="mr-2 w-4 h-4" /> Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setIsSelectionMode(true);
-                                  setSelectedOrders([order.id]);
-                                }}
-                              >
-                                <CheckSquare className="mr-2 w-4 h-4" />{" "}
-                                Seleccionar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                disabled={
-                                  !order.deliveries ||
-                                  order.deliveries.length === 0 ||
-                                  !order.deliveries[0].proof_image_url
-                                }
-                                onClick={() =>
-                                  setPreviewImage(
-                                    order.deliveries[0].proof_image_url!,
-                                  )
-                                }
-                              >
-                                <Camera className="mr-2 w-4 h-4" /> Foto
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteOrder(order.id)}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="mr-2 w-4 h-4" /> Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+                      <TableRow
+                        key={order.id}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            order,
+                          });
+                        }}
+                      >
                         {isSelectionMode && (
                           <TableCell className="px-4 w-[40px]">
                             <Checkbox
@@ -821,6 +974,26 @@ export default function Orders() {
                         <TableCell className="whitespace-nowrap">
                           {order.recipient_name}
                         </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.recipient_phone}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        recipient_phone: e.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            order.recipient_phone
+                          )}
+                        </TableCell>
                         <TableCell
                           className="max-w-[200px] truncate"
                           title={order.destination_address}
@@ -829,6 +1002,29 @@ export default function Orders() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {order.destination_district || "-"}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[200px] truncate"
+                          title={order.product_details || ""}
+                        >
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.product_details || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        product_details: e.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            order.product_details || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <span
@@ -840,33 +1036,214 @@ export default function Orders() {
                                   : "bg-yellow-100 text-yellow-800"
                             }`}
                           >
-                            {order.status === "delivered"
-                              ? "Entregado"
-                              : order.status === "in_transit"
-                                ? "En Ruta"
-                                : "Pendiente"}
+                            {editingRowId === order.id && rowEdit ? (
+                              <select
+                                value={rowEdit.status}
+                                onChange={(e) =>
+                                  setRowEdit((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          status: e.target
+                                            .value as typeof rowEdit.status,
+                                        }
+                                      : prev,
+                                  )
+                                }
+                                className="bg-transparent"
+                              >
+                                <option value="pending">Pendiente</option>
+                                <option value="in_transit">En Ruta</option>
+                                <option value="delivered">Entregado</option>
+                              </select>
+                            ) : order.status === "delivered" ? (
+                              "Entregado"
+                            ) : order.status === "in_transit" ? (
+                              "En Ruta"
+                            ) : (
+                              "Pendiente"
+                            )}
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {order.assigned_courier_profile?.full_name ||
-                            "Sin asignar"}
+                          {editingRowId === order.id && rowEdit ? (
+                            <select
+                              value={rowEdit.assigned_courier || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        assigned_courier:
+                                          e.target.value || null,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="flex justify-between items-center px-2 py-1 w-full h-8 text-xs rounded-md border border-input bg-background"
+                            >
+                              <option value="">Sin asignar</option>
+                              {couriers.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            order.assigned_courier_profile?.full_name ||
+                            "Sin asignar"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {order.tariff || "-"}
+                          {editingRowId === order.id && rowEdit ? (
+                            <select
+                              value={rowEdit.tariff || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        tariff: e.target.value || null,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="flex justify-between items-center px-2 py-1 w-full h-8 text-xs rounded-md border border-input bg-background"
+                            >
+                              <option value="">Seleccionar...</option>
+                              <option value="T1">Tarifa 1 (T1)</option>
+                              <option value="T2">Tarifa 2 (T2)</option>
+                              <option value="T3">Tarifa 3 (T3)</option>
+                            </select>
+                          ) : (
+                            order.tariff || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {order.total_amount
-                            ? `S/ ${order.total_amount.toFixed(2)}`
-                            : "-"}
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={rowEdit.amount_to_collect ?? ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        amount_to_collect:
+                                          e.target.value === ""
+                                            ? null
+                                            : parseFloat(e.target.value),
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : order.amount_to_collect ? (
+                            `S/ ${order.amount_to_collect.toFixed(2)}`
+                          ) : (
+                            "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {order.payment_method || "-"}
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={rowEdit.total_amount ?? ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        total_amount:
+                                          e.target.value === ""
+                                            ? null
+                                            : parseFloat(e.target.value),
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : order.total_amount ? (
+                            `S/ ${order.total_amount.toFixed(2)}`
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {editingRowId === order.id && rowEdit ? (
+                            <select
+                              value={rowEdit.payment_method || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        payment_method: e.target.value || null,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="flex justify-between items-center px-2 py-1 w-full h-8 text-xs rounded-md border border-input bg-background"
+                            >
+                              <option value="">Seleccionar...</option>
+                              <option value="Motorizado">Motorizado</option>
+                              <option value="Directo a comercio">
+                                Directo a comercio
+                              </option>
+                              <option value="Relampago Courier">
+                                Relampago Courier
+                              </option>
+                            </select>
+                          ) : (
+                            order.payment_method || "-"
+                          )}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[200px] truncate"
+                          title={order.comments || ""}
+                        >
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.comments || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? { ...prev, comments: e.target.value }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            order.comments || "-"
+                          )}
                         </TableCell>
                         <TableCell
                           className="max-w-[200px] truncate"
                           title={order.delivery_notes || ""}
                         >
-                          {order.delivery_notes || "-"}
+                          {editingRowId === order.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.delivery_notes || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        delivery_notes: e.target.value,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            order.delivery_notes || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {format(
@@ -884,6 +1261,84 @@ export default function Orders() {
           )}
         </CardContent>
       </Card>
+
+      {editingRowId && rowEdit && (
+        <div className="flex gap-4 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingRowId(null);
+              setRowEdit(null);
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button onClick={saveInlineEdit}>Guardar Cambios</Button>
+        </div>
+      )}
+
+      {contextMenu && contextMenu.order && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                startInlineEdit(contextMenu.order!);
+                setContextMenu(null);
+              }}
+            >
+              <Edit className="mr-2 w-4 h-4" /> Editar
+            </div>
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setIsSelectionMode(true);
+                setSelectedOrders([contextMenu.order!.id]);
+                setContextMenu(null);
+              }}
+            >
+              <CheckSquare className="mr-2 w-4 h-4" /> Seleccionar
+            </div>
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+              onClick={() => {
+                if (
+                  contextMenu.order!.deliveries &&
+                  contextMenu.order!.deliveries.length > 0 &&
+                  contextMenu.order!.deliveries[0].proof_image_url
+                ) {
+                  setPreviewImage(
+                    contextMenu.order!.deliveries[0].proof_image_url!,
+                  );
+                }
+                setContextMenu(null);
+              }}
+            >
+              <Camera className="mr-2 w-4 h-4" /> Foto
+            </div>
+            <div className="-mx-1 my-1 h-px bg-muted" />
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-red-600"
+              onClick={() => {
+                handleDeleteOrder(contextMenu.order!.id);
+                setContextMenu(null);
+              }}
+            >
+              <Trash2 className="mr-2 w-4 h-4" /> Eliminar
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-3xl">
