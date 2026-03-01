@@ -28,14 +28,6 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
-import {
   Edit,
   Plus,
   Loader2,
@@ -43,7 +35,6 @@ import {
   ArrowUp,
   ArrowDown,
   Trash2,
-  Settings,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -79,6 +70,19 @@ export default function Companies() {
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    company: Company | null;
+  } | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [rowEdit, setRowEdit] = useState<{
+    name: string;
+    ruc: string | null;
+    phone: string | null;
+    district: string | null;
+    address: string | null;
+  } | null>(null);
 
   // Filtering and Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -162,10 +166,7 @@ export default function Companies() {
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (company: Company) => {
-    setEditingCompany(company);
-    setIsDialogOpen(true);
-  };
+
 
   const handleDelete = async (id: string) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar esta empresa?"))
@@ -290,7 +291,50 @@ export default function Companies() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Listado de Clientes</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>Listado de Clientes</CardTitle>
+            {editingRowId && rowEdit && (
+              <div className="flex gap-2 items-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingRowId(null);
+                    setRowEdit(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    if (!editingRowId || !rowEdit) return;
+                    try {
+                      const { error } = await supabase
+                        .from("companies")
+                        .update({
+                          name: rowEdit.name,
+                          ruc: rowEdit.ruc,
+                          phone: rowEdit.phone,
+                          district: rowEdit.district,
+                          address: rowEdit.address,
+                        })
+                        .eq("id", editingRowId);
+                      if (error) throw error;
+                      setEditingRowId(null);
+                      setRowEdit(null);
+                      fetchCompanies();
+                    } catch (err) {
+                      console.error("Error saving company inline:", err);
+                      alert("Error al guardar cambios.");
+                    }
+                  }}
+                >
+                  Guardar Cambios
+                </Button>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             Utiliza los filtros en la cabecera de la tabla para buscar empresas
             específicas.
@@ -304,9 +348,6 @@ export default function Companies() {
               <Table className="min-w-[1000px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[50px] text-center">
-                      <Settings className="mx-auto w-4 h-4" />
-                    </TableHead>
                     <TableHead
                       className="whitespace-nowrap cursor-pointer"
                       onClick={() => handleSort("name")}
@@ -358,7 +399,6 @@ export default function Companies() {
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableCell className="p-2 w-[50px]"></TableCell>
                     <TableCell className="p-2">
                       <Input
                         placeholder="Filtrar Nombre..."
@@ -452,52 +492,110 @@ export default function Companies() {
                     </TableRow>
                   ) : (
                     filteredAndSortedCompanies.map((company) => (
-                      <TableRow key={company.id}>
-                        <TableCell className="w-[50px] text-center">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="w-8 h-8"
-                              >
-                                <Settings className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                              <DropdownMenuItem
-                                onClick={() => openEditDialog(company)}
-                              >
-                                <Edit className="mr-2 w-4 h-4" /> Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDelete(company.id)}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="mr-2 w-4 h-4" /> Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+                      <TableRow
+                        key={company.id}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            company,
+                          });
+                        }}
+                      >
                         <TableCell className="font-medium whitespace-nowrap">
-                          {company.name}
+                          {editingRowId === company.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.name}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? { ...prev, name: e.target.value }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            company.name
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {company.ruc || "-"}
+                          {editingRowId === company.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.ruc || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? { ...prev, ruc: e.target.value || null }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            company.ruc || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {company.phone || "-"}
+                          {editingRowId === company.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.phone || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? { ...prev, phone: e.target.value || null }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            company.phone || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {company.district || "-"}
+                          {editingRowId === company.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.district || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        district: e.target.value || null,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            company.district || "-"
+                          )}
                         </TableCell>
                         <TableCell
                           className="max-w-[200px] truncate"
                           title={company.address || ""}
                         >
-                          {company.address || "-"}
+                          {editingRowId === company.id && rowEdit ? (
+                            <Input
+                              value={rowEdit.address || ""}
+                              onChange={(e) =>
+                                setRowEdit((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        address: e.target.value || null,
+                                      }
+                                    : prev,
+                                )
+                              }
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            company.address || "-"
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {format(new Date(company.created_at), "dd/MM/yyyy", {
@@ -513,6 +611,89 @@ export default function Companies() {
           )}
         </CardContent>
       </Card>
+
+      {editingRowId && rowEdit && (
+        <div className="flex gap-4 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingRowId(null);
+              setRowEdit(null);
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!editingRowId || !rowEdit) return;
+              try {
+                const { error } = await supabase
+                  .from("companies")
+                  .update({
+                    name: rowEdit.name,
+                    ruc: rowEdit.ruc,
+                    phone: rowEdit.phone,
+                    district: rowEdit.district,
+                    address: rowEdit.address,
+                  })
+                  .eq("id", editingRowId);
+                if (error) throw error;
+                setEditingRowId(null);
+                setRowEdit(null);
+                fetchCompanies();
+              } catch (err) {
+                console.error("Error saving company inline:", err);
+                alert("Error al guardar cambios.");
+              }
+            }}
+          >
+            Guardar Cambios
+          </Button>
+        </div>
+      )}
+
+      {contextMenu && contextMenu.company && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setEditingRowId(contextMenu.company!.id);
+                setRowEdit({
+                  name: contextMenu.company!.name,
+                  ruc: contextMenu.company!.ruc,
+                  phone: contextMenu.company!.phone,
+                  district: contextMenu.company!.district,
+                  address: contextMenu.company!.address,
+                });
+                setContextMenu(null);
+              }}
+            >
+              <Edit className="mr-2 w-4 h-4" /> Editar
+            </div>
+            <div className="-mx-1 my-1 h-px bg-muted" />
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-red-600"
+              onClick={() => {
+                handleDelete(contextMenu.company!.id);
+                setContextMenu(null);
+              }}
+            >
+              <Trash2 className="mr-2 w-4 h-4" /> Eliminar
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>

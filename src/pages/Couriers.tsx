@@ -25,14 +25,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
+
 import { Label } from "../components/ui/label";
 import {
   Loader2,
@@ -44,7 +37,6 @@ import {
   ArrowDown,
   Edit,
   Trash2,
-  Settings,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -71,6 +63,13 @@ export default function Couriers() {
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editingCourier, setEditingCourier] = useState<Profile | null>(null);
   const [editName, setEditName] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    courier: Profile | null;
+  } | null>(null);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [rowEditName, setRowEditName] = useState<string>("");
 
   // Filtering and Sorting State
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -220,12 +219,6 @@ export default function Couriers() {
       console.error("Error deleting courier:", error);
       alert("Error al eliminar: " + (error as Error).message);
     }
-  };
-
-  const openEditDialog = (courier: Profile) => {
-    setEditingCourier(courier);
-    setEditName(courier.full_name || "");
-    setIsEditDialogOpen(true);
   };
 
   const handleUpdateCourier = async (e: React.FormEvent) => {
@@ -413,9 +406,6 @@ export default function Couriers() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[50px] text-center">
-                      <Settings className="mx-auto w-4 h-4" />
-                    </TableHead>
                     <TableHead
                       className="cursor-pointer"
                       onClick={() => handleSort("name")}
@@ -437,7 +427,6 @@ export default function Couriers() {
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableCell className="p-2 w-[50px]"></TableCell>
                     <TableCell className="p-2">
                       <Input
                         placeholder="Filtrar Nombre..."
@@ -471,7 +460,7 @@ export default function Couriers() {
                   {filteredAndSortedCouriers.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={4}
                         className="py-8 text-center text-muted-foreground"
                       >
                         No hay motorizados registrados con los filtros
@@ -480,37 +469,27 @@ export default function Couriers() {
                     </TableRow>
                   ) : (
                     filteredAndSortedCouriers.map((courier) => (
-                      <TableRow key={courier.id}>
-                        <TableCell className="w-[50px] text-center">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="w-8 h-8"
-                              >
-                                <Settings className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                              <DropdownMenuLabel>Acciones</DropdownMenuLabel>
-                              <DropdownMenuItem
-                                onClick={() => openEditDialog(courier)}
-                              >
-                                <Edit className="mr-2 w-4 h-4" /> Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteCourier(courier.id)}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="mr-2 w-4 h-4" /> Eliminar
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
+                      <TableRow
+                        key={courier.id}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            courier,
+                          });
+                        }}
+                      >
                         <TableCell className="font-medium">
-                          {courier.full_name || "Sin nombre"}
+                          {editingRowId === courier.id ? (
+                            <Input
+                              value={rowEditName}
+                              onChange={(e) => setRowEditName(e.target.value)}
+                              className="h-8 text-xs"
+                            />
+                          ) : (
+                            courier.full_name || "Sin nombre"
+                          )}
                         </TableCell>
                         <TableCell>
                           <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
@@ -518,9 +497,22 @@ export default function Couriers() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          {format(new Date(courier.created_at), "dd/MM/yyyy", {
-                            locale: es,
-                          })}
+                          {courier.created_at
+                            ? format(
+                                new Date(courier.created_at),
+                                "dd/MM/yyyy",
+                                {
+                                  locale: es,
+                                },
+                              )
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {editingRowId === courier.id && (
+                            <span className="text-xs text-muted-foreground">
+                              Editando...
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))
@@ -531,6 +523,77 @@ export default function Couriers() {
           )}
         </CardContent>
       </Card>
+
+      {editingRowId && (
+        <div className="flex gap-4 justify-end">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditingRowId(null);
+              setRowEditName("");
+            }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!editingRowId) return;
+              try {
+                const { error } = await supabase
+                  .from("profiles")
+                  .update({ full_name: rowEditName })
+                  .eq("id", editingRowId);
+                if (error) throw error;
+                setEditingRowId(null);
+                setRowEditName("");
+                fetchCouriers();
+              } catch (err) {
+                console.error("Error saving courier inline:", err);
+                alert("Error al guardar cambios.");
+              }
+            }}
+          >
+            Guardar Cambios
+          </Button>
+        </div>
+      )}
+
+      {contextMenu && contextMenu.courier && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setEditingRowId(contextMenu.courier!.id);
+                setRowEditName(contextMenu.courier!.full_name || "");
+                setContextMenu(null);
+              }}
+            >
+              <Edit className="mr-2 w-4 h-4" /> Editar
+            </div>
+            <div className="-mx-1 my-1 h-px bg-muted" />
+            <div
+              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-red-600"
+              onClick={() => {
+                handleDeleteCourier(contextMenu.courier!.id);
+                setContextMenu(null);
+              }}
+            >
+              <Trash2 className="mr-2 w-4 h-4" /> Eliminar
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
