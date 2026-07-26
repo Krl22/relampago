@@ -7,7 +7,7 @@ This repository is presented as a portfolio project: it shows a full React + Typ
 ## What recruiters should notice
 
 - **End-to-end product thinking:** the app covers the operational loop from public order intake to courier assignment, delivery confirmation, and inventory visibility.
-- **Real backend integration:** Supabase Auth, database tables, row-level policy scripts, and storage-backed delivery proof uploads are part of the implementation.
+- **Real backend integration:** Supabase Auth, database-backed workflows, role-aware access patterns, and storage-backed delivery proof uploads are part of the implementation.
 - **Role-based UX:** different users see different workflows, keeping admin, courier, and client experiences focused.
 - **Data-heavy UI:** dashboards, filters, sortable tables, inline editing, bulk assignment, and charts support day-to-day logistics work.
 - **Modern frontend stack:** React, TypeScript, Vite, Tailwind CSS, Radix UI primitives, React Hook Form, Zod, Recharts, and Supabase JS.
@@ -64,8 +64,6 @@ Supabase tables represented in the typed model include:
 - `stock`
 - `deliveries`
 
-The repository also includes SQL files for schema changes and row-level security policies.
-
 ## Getting started
 
 ### Prerequisites
@@ -115,7 +113,7 @@ npm run lint
 
 ## Supabase setup notes
 
-This app expects the Supabase project to include the tables and policies used by the React client. The SQL files in the repository document the incremental database setup for profiles, companies, orders, deliveries, stock, and related row-level security policies.
+This app expects the Supabase project to include the tables and access policies used by the React client, including profiles, companies, orders, deliveries, and stock.
 
 For delivery proof uploads, create a Supabase Storage bucket named `proofs` and configure access policies appropriate for your deployment.
 
@@ -124,4 +122,3 @@ For delivery proof uploads, create a Supabase Storage bucket named `proofs` and 
 I built this project to demonstrate practical frontend engineering in a business workflow: translating logistics operations into a typed, role-aware web application with real authentication, database integration, and field-worker interactions.
 
 The strongest parts of the project are the operational UI patterns: dense tables, filtered dashboards, bulk updates, route-specific courier views, public intake, and proof-of-delivery handling.
-
