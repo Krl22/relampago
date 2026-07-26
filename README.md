@@ -4,6 +4,16 @@ Relampago Courier is a delivery operations dashboard built for small logistics t
 
 This repository is presented as a portfolio project: it shows a full React + TypeScript application connected to Supabase, with role-based user flows for administrators, staff, couriers, and clients.
 
+## Screenshots
+
+### Admin dashboard
+
+![Relampago Courier admin dashboard](docs/images/dashboard.png)
+
+### Login
+
+![Relampago Courier login screen](docs/images/login.png)
+
 ## What recruiters should notice
 
 - **End-to-end product thinking:** the app covers the operational loop from public order intake to courier assignment, delivery confirmation, and inventory visibility.
