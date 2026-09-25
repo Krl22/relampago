@@ -44,9 +44,10 @@ type StockItem = Database["public"]["Tables"]["stock"]["Row"] & {
 };
 
 type Company = Database["public"]["Tables"]["companies"]["Row"];
+type Availability = { reserved: number; available: number };
 
 const stockSchema = z.object({
-  company_id: z.string().min(1, "Selecciona una empresa"),
+  company_id: z.string().min(1, "Selecciona un comercio"),
   product_name: z.string().min(2, "El nombre del producto es requerido"),
   quantity: z.coerce.number().min(0, "La cantidad debe ser mayor o igual a 0"),
   unit: z.string().optional(),
@@ -69,6 +70,8 @@ type FilterConfig = {
 
 export default function Stock() {
   const [stock, setStock] = useState<StockItem[]>([]);
+  // Comprometido en pedidos en curso (el stock se descuenta al entregar)
+  const [availability, setAvailability] = useState<Map<string, Availability>>(new Map());
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -128,6 +131,8 @@ export default function Stock() {
       if (error) throw error;
       // @ts-ignore
       setStock(data || []);
+      const { data: avail } = await supabase.from("stock_availability").select("id, reserved, available");
+      setAvailability(new Map((avail ?? []).map((a) => [a.id ?? "", { reserved: Number(a.reserved ?? 0), available: Number(a.available ?? 0) }])));
     } catch (error) {
       console.error("Error fetching stock:", error);
     } finally {
@@ -209,7 +214,7 @@ export default function Stock() {
         .toLowerCase()
         .includes(filters.unit.toLowerCase());
 
-      const itemDate = format(new Date(item.created_at), "dd/MM/yyyy", {
+      const itemDate = format(new Date(item.created_at ?? 0), "dd/MM/yyyy", {
         locale: es,
       });
       const matchDate = filters.date === "" || itemDate.includes(filters.date);
@@ -242,8 +247,8 @@ export default function Stock() {
           bValue = b.unit || "";
           break;
         case "created_at":
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
+          aValue = new Date(a.created_at ?? 0).getTime();
+          bValue = new Date(b.created_at ?? 0).getTime();
           break;
         default:
           return 0;
@@ -298,7 +303,7 @@ export default function Stock() {
                       onClick={() => handleSort("company")}
                     >
                       <div className="flex items-center">
-                        Empresa <SortIcon columnKey="company" />
+                        Comercio <SortIcon columnKey="company" />
                       </div>
                     </TableHead>
                     <TableHead
@@ -341,7 +346,7 @@ export default function Stock() {
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
                     <TableCell className="p-2">
                       <Input
-                        placeholder="Filtrar Empresa..."
+                        placeholder="Filtrar comercio..."
                         value={filters.company}
                         onChange={(e) =>
                           setFilters((prev) => ({
@@ -428,13 +433,20 @@ export default function Stock() {
                           {item.product_name}
                         </TableCell>
                         <TableCell className="font-bold whitespace-nowrap">
-                          {item.quantity}
+                          <span className={item.quantity < 0 ? "text-red-700" : undefined} title={item.quantity < 0 ? "Stock negativo: revisa el inventario" : undefined}>
+                            {item.quantity}
+                          </span>
+                          {(availability.get(item.id)?.reserved ?? 0) > 0 && (
+                            <div className="text-[11px] font-normal text-muted-foreground">
+                              {availability.get(item.id)!.reserved} comprometidos · {availability.get(item.id)!.available} disponibles
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {item.unit || "-"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {format(new Date(item.created_at), "dd/MM/yyyy", {
+                          {format(new Date(item.created_at ?? 0), "dd/MM/yyyy", {
                             locale: es,
                           })}
                         </TableCell>
@@ -474,14 +486,14 @@ export default function Stock() {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="company_id">Empresa</Label>
+              <Label htmlFor="company_id">Comercio</Label>
               <select
                 id="company_id"
                 {...register("company_id")}
                 className="flex justify-between items-center px-3 py-2 w-full h-10 text-sm rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!!editingItem}
               >
-                <option value="">Seleccionar empresa...</option>
+                <option value="">Seleccionar comercio...</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}

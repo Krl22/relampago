@@ -13,9 +13,21 @@ import {
   Building2,
   Users,
   Zap,
+  Map as MapIcon,
+  Route as RouteIcon,
+  PackageOpen,
+  Receipt,
+  ClipboardList,
+  PlusCircle,
+  Store,
+  FileSpreadsheet,
+  BadgeDollarSign,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
+import { TrackingBadge } from "./TrackingBadge";
+import { MerchantAnnouncement } from "./Announcements";
+import { ROLE_LABELS, actsAsCourier } from "../lib/profiles";
 
 export default function AppLayout() {
   const { profile, signOut } = useAuth();
@@ -67,6 +79,7 @@ export default function AppLayout() {
   };
 
   const role = profile?.role;
+  const delivers = actsAsCourier(profile);
 
   const navItems = [
     {
@@ -83,8 +96,20 @@ export default function AppLayout() {
       count: counts.orders,
     },
     {
-      label: "Empresas",
-      href: "/companies",
+      label: "Recojos",
+      href: "/recojos",
+      icon: PackageOpen,
+      roles: ["admin", "staff"],
+    },
+    {
+      label: "Liquidaciones",
+      href: "/liquidaciones",
+      icon: Receipt,
+      roles: ["admin", "staff"],
+    },
+    {
+      label: "Comercios",
+      href: "/comercios",
       icon: Building2,
       roles: ["admin", "staff"],
       count: counts.companies,
@@ -97,16 +122,67 @@ export default function AppLayout() {
       count: counts.couriers,
     },
     {
+      label: "Mapa",
+      href: "/mapa",
+      icon: MapIcon,
+      roles: ["admin", "staff"],
+    },
+    {
       label: "Mis Envíos",
       href: "/my-deliveries",
       icon: Truck,
-      roles: ["courier"],
+      roles: ["courier", "admin", "staff"],
+      when: delivers,
     },
     {
-      label: "Mi Stock",
+      label: "Mi Ruta",
+      href: "/mi-ruta",
+      icon: RouteIcon,
+      roles: ["courier", "admin", "staff"],
+      when: delivers,
+    },
+    // Portal del comercio
+    {
+      label: "Mis pedidos",
+      href: "/mis-pedidos",
+      icon: ClipboardList,
+      roles: ["client"],
+    },
+    {
+      label: "Nuevo pedido",
+      href: "/nuevo-pedido",
+      icon: PlusCircle,
+      roles: ["client"],
+    },
+    {
+      label: "Carga masiva",
+      href: "/carga-masiva",
+      icon: FileSpreadsheet,
+      roles: ["client"],
+    },
+    {
+      label: "Mi stock",
       href: "/my-stock",
       icon: Boxes,
       roles: ["client"],
+    },
+    {
+      label: "Mis liquidaciones",
+      href: "/mis-liquidaciones",
+      icon: Receipt,
+      roles: ["client"],
+    },
+    {
+      label: "Mi comercio",
+      href: "/mi-comercio",
+      icon: Store,
+      roles: ["client"],
+    },
+    {
+      label: "Tarifario",
+      href: "/tarifario",
+      icon: BadgeDollarSign,
+      roles: ["admin", "staff", "client", "courier"],
     },
     {
       label: "Inventario Global",
@@ -117,12 +193,12 @@ export default function AppLayout() {
     },
   ];
 
-  const filteredNavItems = navItems.filter((item) =>
-    item.roles.includes(role || ""),
+  const filteredNavItems = navItems.filter(
+    (item) => item.roles.includes(role || "") && (item.when ?? true),
   );
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-gray-100 print:h-auto print:bg-white">
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
@@ -134,7 +210,7 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 shadow-xl transition-transform duration-200 ease-in-out transform bg-primary text-primary-foreground lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 w-64 shadow-xl transition-transform duration-200 ease-in-out transform bg-primary text-primary-foreground lg:static lg:translate-x-0 print:hidden",
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -204,9 +280,10 @@ export default function AppLayout() {
               <span className="text-sm font-bold text-white">
                 {profile?.full_name || "Usuario"}
               </span>
-              <span className="text-xs capitalize text-white/60">{role}</span>
+              <span className="text-xs text-white/60">{role ? ROLE_LABELS[role] : ""}</span>
             </div>
           </div>
+          <TrackingBadge className="mb-3 w-full justify-center" />
           <Button
             variant="ghost"
             className="gap-2 justify-start w-full text-white/80 hover:text-white hover:bg-white/10"
@@ -221,15 +298,16 @@ export default function AppLayout() {
       {/* Main Content */}
       <div className="flex overflow-hidden flex-col flex-1">
         {/* Top Header (Mobile only mostly) */}
-        <header className="flex justify-between items-center px-6 h-16 bg-white shadow-sm lg:hidden">
+        <header className="flex justify-between items-center px-6 h-16 bg-white shadow-sm lg:hidden print:hidden">
           <button onClick={() => setSidebarOpen(true)}>
             <Menu className="w-6 h-6" />
           </button>
           <span className="font-semibold">Relámpago Courier</span>
-          <div className="w-6" /> {/* Spacer */}
+          {delivers ? <TrackingBadge /> : <div className="w-6" />}
         </header>
 
-        <main className="overflow-y-auto flex-1 p-6">
+        <main className="overflow-y-auto flex-1 p-6 print:overflow-visible print:p-0">
+          {role === "client" && <MerchantAnnouncement />}
           <Outlet />
         </main>
       </div>

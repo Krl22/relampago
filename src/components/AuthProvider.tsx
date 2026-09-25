@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { Database } from '../types/database'
+import { getImpersonation, stopImpersonation } from '../lib/impersonation'
 
 type Profile = Database['public']['Tables']['profiles']['Row']
 
@@ -11,6 +12,8 @@ interface AuthContextType {
   profile: Profile | null
   loading: boolean
   signOut: () => Promise<void>
+  /** Vuelve a leer el perfil (p. ej. tras vincular la cuenta a un comercio). */
+  refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   loading: true,
   signOut: async () => {},
+  refreshProfile: async () => {},
 })
 
 export const useAuth = () => {
@@ -78,7 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const refreshProfile = async () => {
+    if (user) await fetchProfile(user.id)
+  }
+
   const signOut = async () => {
+    // En "Ver como", cerrar sesión = volver a la cuenta del admin (sin desconectar al usuario real)
+    if (getImpersonation()) await stopImpersonation()
     await supabase.auth.signOut()
     setProfile(null)
     setUser(null)
@@ -86,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

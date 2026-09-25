@@ -27,6 +27,8 @@ import {
 } from "../components/ui/dialog";
 
 import { Label } from "../components/ui/label";
+import { Checkbox } from "../components/ui/checkbox";
+import { ViewAsButton } from "../components/ViewAsButton";
 import {
   Loader2,
   Plus,
@@ -55,6 +57,7 @@ type FilterConfig = {
 
 export default function Couriers() {
   const [couriers, setCouriers] = useState<Profile[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -88,7 +91,32 @@ export default function Couriers() {
 
   useEffect(() => {
     fetchCouriers();
+    fetchStaff();
   }, []);
+
+  const fetchStaff = async () => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .in("role", ["admin", "staff"])
+      .order("full_name", { ascending: true });
+    if (data) setStaffProfiles(data);
+  };
+
+  // Admin/staff que además salen a repartir: aparecen en asignación, mapa y "Mis Envíos".
+  const toggleStaffDelivers = async (id: string, delivers: boolean) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_courier: delivers })
+      .eq("id", id);
+    if (error) {
+      alert("Error al actualizar: " + error.message);
+      return;
+    }
+    setStaffProfiles((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, is_courier: delivers } : p)),
+    );
+  };
 
   const fetchCouriers = async () => {
     try {
@@ -152,30 +180,19 @@ export default function Couriers() {
 
       const newUserId = authData.user.id;
 
-      // 3. Force update the profile just in case trigger didn't catch it or if we want to ensure data
-      // We use upsert to handle both cases (row exists or not)
-      const { error: profileError } = await supabase.from("profiles").upsert({
-        id: newUserId,
-        full_name: fullName,
-        role: "courier",
-        updated_at: new Date().toISOString(),
-      });
+      // 3. El trigger crea el perfil como 'client'; aquí el admin lo sube a motorizado.
+      // upsert cubre ambos casos (fila creada por el trigger o aún no).
+      const { data: profileRow, error: profileError } = await supabase
+        .from("profiles")
+        .upsert({ id: newUserId, full_name: fullName, role: "courier" })
+        .select("role")
+        .single();
 
-      if (profileError) {
-        // If profile creation fails, we might still have the user created in Auth
-        console.error("Error creating/updating profile:", profileError);
-        // Check if profile exists despite error (RLS might block update but insert worked via trigger?)
-        const { data: checkProfile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", newUserId)
-          .single();
-
-        if (!checkProfile) {
-          throw new Error(
-            "Usuario creado, pero falló al asignar el rol de motorizado. Contacta soporte.",
-          );
-        }
+      if (profileError || profileRow?.role !== "courier") {
+        console.error("Error asignando rol de motorizado:", profileError);
+        throw new Error(
+          "Usuario creado, pero falló al asignar el rol de motorizado. Revisa la pantalla de Motorizados o contacta soporte.",
+        );
       }
 
       setCreateSuccess("Motorizado creado exitosamente.");
@@ -263,7 +280,7 @@ export default function Couriers() {
         .toLowerCase()
         .includes(filters.name.toLowerCase());
 
-      const courierDate = format(new Date(courier.created_at), "dd/MM/yyyy", {
+      const courierDate = format(new Date(courier.created_at ?? 0), "dd/MM/yyyy", {
         locale: es,
       });
       const matchDate =
@@ -283,8 +300,8 @@ export default function Couriers() {
           bValue = b.full_name || "";
           break;
         case "created_at":
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
+          aValue = new Date(a.created_at ?? 0).getTime();
+          bValue = new Date(b.created_at ?? 0).getTime();
           break;
         default:
           return 0;
@@ -499,7 +516,7 @@ export default function Couriers() {
                         <TableCell>
                           {courier.created_at
                             ? format(
-                                new Date(courier.created_at),
+                                new Date(courier.created_at ?? 0),
                                 "dd/MM/yyyy",
                                 {
                                   locale: es,
@@ -508,10 +525,12 @@ export default function Couriers() {
                             : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          {editingRowId === courier.id && (
+                          {editingRowId === courier.id ? (
                             <span className="text-xs text-muted-foreground">
                               Editando...
                             </span>
+                          ) : (
+                            <ViewAsButton target={{ id: courier.id, full_name: courier.full_name, role: "courier" }} />
                           )}
                         </TableCell>
                       </TableRow>
@@ -519,6 +538,42 @@ export default function Couriers() {
                   )}
                 </TableBody>
               </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Admins y staff que también reparten</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Marca a quien salga a repartir cuando falte un motorizado: podrá recibir pedidos,
+            aparecerá en el mapa y verá "Mis Envíos" en su menú.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {staffProfiles.length === 0 ? (
+            <div className="py-2 text-sm text-muted-foreground">No hay admins ni staff registrados.</div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {staffProfiles.map((p) => (
+                <label
+                  key={p.id}
+                  htmlFor={`delivers-${p.id}`}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-muted/50"
+                >
+                  <Checkbox
+                    id={`delivers-${p.id}`}
+                    checked={p.is_courier}
+                    onCheckedChange={(v) => void toggleStaffDelivers(p.id, !!v)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{p.full_name || "Sin nombre"}</div>
+                    <div className="text-xs capitalize text-muted-foreground">{p.role}</div>
+                  </div>
+                  <ViewAsButton compact target={{ id: p.id, full_name: p.full_name, role: p.role }} />
+                </label>
+              ))}
             </div>
           )}
         </CardContent>

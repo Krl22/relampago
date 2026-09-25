@@ -168,6 +168,9 @@ export default function Login() {
             </svg>
             Continuar con Google
           </Button>
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            ¿Tu negocio aún no tiene cuenta? Pídela a Relámpago Courier y te la creamos.
+          </p>
         </div>
       </Card>
     </div>

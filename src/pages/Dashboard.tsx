@@ -12,12 +12,13 @@ import {
   Truck,
   CheckCircle,
   Clock,
-  Copy,
-  ExternalLink,
   Loader2,
   Filter,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Navigate } from "react-router-dom";
+import { PublicFormSwitch } from "../components/PublicFormSwitch";
+import { AnnouncementAdminCard } from "../components/Announcements";
+import { DistrictSelect } from "../components/DistrictSelect";
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import {
@@ -42,7 +43,6 @@ type Company = Database["public"]["Tables"]["companies"]["Row"];
 
 export default function Dashboard() {
   const { profile } = useAuth();
-  const [copied, setCopied] = useState(false);
   const [stats, setStats] = useState({
     pending: 0,
     in_transit: 0,
@@ -77,7 +77,8 @@ export default function Dashboard() {
     const { data: couriersData } = await supabase
       .from("profiles")
       .select("*")
-      .eq("role", "courier");
+      .eq("is_courier", true)
+      .order("full_name", { ascending: true });
 
     const { data: companiesData } = await supabase
       .from("companies")
@@ -119,6 +120,7 @@ export default function Dashboard() {
           // Date Filter
           if (filterDate) {
             filteredData = filteredData.filter((order) => {
+              if (!order.created_at) return false;
               const orderDate = format(
                 parseISO(order.created_at),
                 "yyyy-MM-dd",
@@ -158,6 +160,7 @@ export default function Dashboard() {
           ).length;
           const delivered = filteredData.filter((o) => {
             // Si hay filtro de fecha, usamos ese. Si no, hoy.
+            if (!o.created_at) return false;
             const targetDate = filterDate || format(new Date(), "yyyy-MM-dd");
             const orderDate = format(parseISO(o.created_at), "yyyy-MM-dd");
             return o.status === "delivered" && orderDate === targetDate;
@@ -198,6 +201,7 @@ export default function Dashboard() {
           dateLabels.forEach((day) => revenueMap.set(day, 0));
 
           filteredData.forEach((order) => {
+            if (!order.created_at) return;
             const orderDate = format(parseISO(order.created_at), "dd/MM", {
               locale: es,
             });
@@ -222,13 +226,6 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const copyPublicLink = () => {
-    const url = `${window.location.origin}/pedido-express`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   if (profile?.role === "courier") {
@@ -261,13 +258,9 @@ export default function Dashboard() {
     );
   }
 
+  // El comercio arranca en sus pedidos
   if (profile?.role === "client") {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Bienvenido</h1>
-        <p>Gestiona tu stock desde el menú.</p>
-      </div>
-    );
+    return <Navigate to="/mis-pedidos" replace />;
   }
 
   // Admin and Staff
@@ -276,32 +269,10 @@ export default function Dashboard() {
       <div className="flex flex-col gap-4 justify-between md:flex-row md:items-center">
         <h1 className="text-3xl font-bold">Dashboard</h1>
 
-        <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="flex gap-4 items-center p-4">
-            <div className="text-sm">
-              <p className="font-medium">Formulario Público de Pedidos</p>
-              <p className="text-xs text-muted-foreground">
-                Comparte este link con tus clientes
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={copyPublicLink}>
-                {copied ? (
-                  <CheckCircle className="mr-2 w-4 h-4" />
-                ) : (
-                  <Copy className="mr-2 w-4 h-4" />
-                )}
-                {copied ? "Copiado" : "Copiar Link"}
-              </Button>
-              <Link to="/pedido-express" target="_blank">
-                <Button size="icon" variant="ghost">
-                  <ExternalLink className="w-4 h-4" />
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+        <PublicFormSwitch />
       </div>
+
+      <AnnouncementAdminCard />
 
       <Card>
         <CardHeader>
@@ -335,7 +306,7 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Empresa (Cliente)</Label>
+              <Label>Comercio</Label>
               <select
                 className="flex justify-between items-center px-3 py-2 w-full h-10 text-sm rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 value={selectedCompany}
@@ -351,11 +322,7 @@ export default function Dashboard() {
             </div>
             <div className="space-y-2">
               <Label>Distrito</Label>
-              <Input
-                placeholder="Ej. Miraflores"
-                value={selectedDistrict}
-                onChange={(e) => setSelectedDistrict(e.target.value)}
-              />
+              <DistrictSelect includeAgencies placeholder="Todos" value={selectedDistrict} onChange={(e) => setSelectedDistrict(e.target.value)} />
             </div>
           </div>
           <div className="flex justify-end mt-4">
