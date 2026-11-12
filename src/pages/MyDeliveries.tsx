@@ -32,6 +32,7 @@ import { whatsappHref } from "../lib/phone";
 import { cn } from "@/lib/utils";
 import { computeFee, TARIFF_AMOUNTS, TARIFF_CODES } from "../lib/tariff";
 import { isReadyForRoute } from "../lib/fulfillment";
+import { compressImage } from "../lib/compressImage";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
   pickups: { pickup_number: number; status: string } | null;
@@ -128,12 +129,14 @@ export default function MyDeliveries() {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || event.target.files.length === 0 || !selectedOrder || !user) return;
 
-    const file = event.target.files[0];
-    const fileExt = file.name.split(".").pop();
-    const filePath = `${selectedOrder.id}-${Date.now()}.${fileExt}`;
+    const original = event.target.files[0];
 
     setUploading(true);
     try {
+      // Se reduce a ~150–250 KB antes de subir (ahorra espacio y datos del motorizado)
+      const file = await compressImage(original);
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${selectedOrder.id}-${Date.now()}.${fileExt}`;
       const { error: uploadError } = await supabase.storage.from("proofs").upload(filePath, file);
       if (uploadError) throw uploadError;
 

@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { compressImage } from "../../lib/compressImage";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"];
 export type DeliveryResult = { proofUrl: string; status: Order["status"]; amount_collected: number | null; payment_method: string | null };
@@ -48,9 +49,10 @@ export function AdminDeliveryDialog({ order, onClose, onDone }: { order: Order; 
     setSaving(true);
     setError(null);
     try {
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const photo = await compressImage(file);
+      const ext = (photo.name.split(".").pop() || "jpg").toLowerCase();
       const path = `${order.id}-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("proofs").upload(path, file);
+      const { error: upErr } = await supabase.storage.from("proofs").upload(path, photo);
       if (upErr) throw upErr;
       const { data } = supabase.storage.from("proofs").getPublicUrl(path);
       const { error: delErr } = await supabase.from("deliveries").insert({
