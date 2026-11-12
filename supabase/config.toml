@@ -4,6 +4,17 @@
 # working directory name when running `supabase init`.
 project_id = "relampago"
 
+[functions.enterprise-chat]
+verify_jwt = true
+
+[functions.telegram-webhook]
+# Validates Telegram's per-bot secret header and linked sender itself.
+verify_jwt = false
+
+[functions.telegram-worker]
+# Private cron endpoint; validates CHATBOT_WORKER_SECRET itself.
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

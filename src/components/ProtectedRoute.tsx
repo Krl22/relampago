@@ -17,6 +17,10 @@ export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />
   }
 
+  if (user.app_metadata?.merchant_activation_required === true) {
+    return <Navigate to="/activar-cuenta" replace />
+  }
+
   if (allowedRoles && profile && !allowedRoles.includes(profile.role)) {
     return <div className="flex h-screen items-center justify-center">No tienes permiso para ver esta página.</div>
   }

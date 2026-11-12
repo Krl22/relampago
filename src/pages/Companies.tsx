@@ -37,9 +37,19 @@ import {
   Trash2,
   MapPin,
   KeyRound,
+  Eye,
+  FileText,
 } from "lucide-react";
+import { RowActions, RowActionsButton, TableActionsHint } from "../components/RowActions";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { savedCompanyList } from "../lib/companyListState";
+import { Boxes } from "lucide-react";
 import { CompanyAddressesDialog } from "../components/CompanyAddressesDialog";
 import { CompanyAccessDialog } from "../components/CompanyAccessDialog";
+import { CompanyViewAsDialog } from "../components/CompanyViewAsDialog";
+import { useAuth } from "../components/AuthProvider";
+import { getImpersonation } from "../lib/impersonation";
+import { useDesign } from "../components/design/DesignContext";
 import { DistrictSelect } from "../components/DistrictSelect";
 import { Checkbox } from "../components/ui/checkbox";
 import { format } from "date-fns";
@@ -59,7 +69,6 @@ const companySchema = z.object({
   yape_holder: z.string().optional(),
   invoice_igv: z.boolean().optional(),
   t1_rate: z.string().optional(),
-  skip_cutoff: z.boolean().optional(),
 });
 
 type CompanyFormValues = z.infer<typeof companySchema>;
@@ -83,6 +92,12 @@ type FilterConfig = {
 type Activity = { accounts: number; orders_30d: number; last_order_at: string | null };
 
 export default function Companies() {
+  const { mode } = useDesign();
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const savedList = savedCompanyList(location.state);
+  const [viewAsFor, setViewAsFor] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -90,11 +105,6 @@ export default function Companies() {
   const [addressesFor, setAddressesFor] = useState<Company | null>(null);
   const [accessFor, setAccessFor] = useState<Company | null>(null);
   const [accessPrefill, setAccessPrefill] = useState<{ email: string | null; fullName: string | null } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    company: Company | null;
-  } | null>(null);
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [rowEdit, setRowEdit] = useState<{
     name: string;
@@ -107,11 +117,11 @@ export default function Companies() {
   } | null>(null);
 
   // Filtering and Sorting State
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
+  const [sortConfig, setSortConfig] = useState<SortConfig>(savedList?.sortConfig ?? {
     key: "created_at",
     direction: "desc",
   });
-  const [filters, setFilters] = useState<FilterConfig>({
+  const [filters, setFilters] = useState<FilterConfig>(savedList?.filters ?? {
     name: "",
     ruc: "",
     phone: "",
@@ -140,7 +150,6 @@ export default function Companies() {
     resolver: zodResolver(companySchema),
   });
   const invoiceIgv = watch("invoice_igv");
-  const skipCutoff = watch("skip_cutoff");
 
   useEffect(() => {
     fetchCompanies();
@@ -160,9 +169,8 @@ export default function Companies() {
       setValue("yape_holder", editingCompany.yape_holder || "");
       setValue("invoice_igv", editingCompany.invoice_igv);
       setValue("t1_rate", editingCompany.t1_rate != null ? String(editingCompany.t1_rate) : "");
-      setValue("skip_cutoff", editingCompany.skip_cutoff);
     } else {
-      reset({ name: "", ruc: "", address: "", district: "", phone: "", email: "", contact_name: "", yape_number: "", yape_holder: "", invoice_igv: false, t1_rate: "", skip_cutoff: false });
+      reset({ name: "", ruc: "", address: "", district: "", phone: "", email: "", contact_name: "", yape_number: "", yape_holder: "", invoice_igv: false, t1_rate: "" });
     }
   }, [editingCompany, setValue, reset]);
 
@@ -191,7 +199,6 @@ export default function Companies() {
       yape_number: values.yape_number || null,
       yape_holder: values.yape_holder || null,
       invoice_igv: !!values.invoice_igv,
-      skip_cutoff: !!values.skip_cutoff,
       t1_rate: values.t1_rate && Number.isFinite(Number(values.t1_rate)) ? Number(values.t1_rate) : null,
     };
     try {
@@ -220,6 +227,7 @@ export default function Companies() {
 
   const openNewDialog = () => {
     setEditingCompany(null);
+    reset({ name: "", ruc: "", address: "", district: "", phone: "", email: "", contact_name: "", yape_number: "", yape_holder: "", invoice_igv: false, t1_rate: "" });
     setIsDialogOpen(true);
   };
 
@@ -365,8 +373,8 @@ export default function Companies() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div data-page="companies" className="space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Comercios</h1>
         <Button onClick={openNewDialog}>
           <Plus className="mr-2 w-4 h-4" />
@@ -422,10 +430,7 @@ export default function Companies() {
               </div>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            Utiliza los filtros en la cabecera de la tabla para buscar comercios
-            específicas.
-          </p>
+          <TableActionsHint />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -489,7 +494,6 @@ export default function Companies() {
                         Portal <SortIcon columnKey="portal" />
                       </div>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap">Acciones</TableHead>
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -591,14 +595,13 @@ export default function Companies() {
                         <option value="has">Con cuenta</option>
                       </select>
                     </TableCell>
-                    <TableCell className="p-2"></TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredAndSortedCompanies.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={10}
+                        colSpan={8}
                         className="py-8 text-center text-muted-foreground"
                       >
                         No se encontraron comercios con los filtros
@@ -607,18 +610,18 @@ export default function Companies() {
                     </TableRow>
                   ) : (
                     filteredAndSortedCompanies.map((company) => (
-                      <TableRow
-                        key={company.id}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setContextMenu({
-                            x: e.clientX,
-                            y: e.clientY,
-                            company,
-                          });
-                        }}
-                      >
+                      <RowActions key={company.id} label={company.name} actions={[
+                        ...(profile?.role === "admin" && mode === "lightning" ? [{ label: "Abrir ficha del comercio", icon: FileText, onSelect: () => navigate(`/comercios/${company.id}`, {state:{companyList:{filters,sortConfig}}}) }] : []),
+                        ...(profile?.role === "admin" && !getImpersonation() ? [{ label: "Ver como", icon: Eye, onSelect: () => setViewAsFor(company) }] : []),
+                        { label: "Editar comercio", icon: Edit, onSelect: () => { setEditingCompany(company); setIsDialogOpen(true); } },
+                        { label: "Direcciones de recojo", icon: MapPin, onSelect: () => setAddressesFor(company) },
+                        { label: "Accesos al portal", icon: KeyRound, onSelect: () => setAccessFor(company) },
+                        { label: "Ver inventario", icon: Boxes, onSelect: () => navigate(`/stock?company=${company.id}`) },
+                        { label: "Eliminar comercio", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(company.id); } },
+                      ]}>
+                      <TableRow>
                         <TableCell className="font-medium whitespace-nowrap">
+                          <RowActionsButton />
                           {editingRowId === company.id && rowEdit ? (
                             <Input
                               value={rowEdit.name}
@@ -633,9 +636,9 @@ export default function Companies() {
                             />
                           ) : (
                             <>
-                              {company.name}
+                              {profile?.role === "admin" && mode === "lightning" ? <Link to={`/comercios/${company.id}`} state={{companyList:{filters,sortConfig}}} className="text-primary hover:underline" title={`Abrir ficha de ${company.name}`}>{company.name}</Link> : company.name}
                               {company.skip_cutoff && (
-                                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-800" title="Sin horario de corte: sus pedidos entran para el mismo día">
+                                <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-800" title="Prioridad automática por tener inventario registrado">
                                   Prioritario
                                 </span>
                               )}
@@ -754,7 +757,7 @@ export default function Companies() {
                             const act = activity.get(company.id);
                             const accounts = act?.accounts ?? 0;
                             return (
-                              <div>
+                              <div data-page="companies">
                                 {accounts > 0 ? (
                                   <span className="rounded-full bg-green-100 px-2 py-0.5 font-medium text-green-800">
                                     ✓ {accounts} cuenta{accounts === 1 ? "" : "s"}
@@ -769,17 +772,8 @@ export default function Companies() {
                             );
                           })()}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          <div className="flex gap-1">
-                            <Button size="sm" variant="outline" onClick={() => setAddressesFor(company)} title="Direcciones de recojo">
-                              <MapPin className="mr-1 h-3.5 w-3.5" /> Direcciones
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => setAccessFor(company)} title="Cuentas del comercio en el portal">
-                              <KeyRound className="mr-1 h-3.5 w-3.5" /> Accesos
-                            </Button>
-                          </div>
-                        </TableCell>
                       </TableRow>
+                      </RowActions>
                     ))
                   )}
                 </TableBody>
@@ -831,59 +825,16 @@ export default function Companies() {
         </div>
       )}
 
-      {contextMenu && contextMenu.company && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setContextMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu(null);
-          }}
-        >
-          <div
-            className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <div
-              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setEditingRowId(contextMenu.company!.id);
-                setRowEdit({
-                  name: contextMenu.company!.name,
-                  ruc: contextMenu.company!.ruc,
-                  phone: contextMenu.company!.phone,
-                  district: contextMenu.company!.district,
-                  address: contextMenu.company!.address,
-                  yape_number: contextMenu.company!.yape_number,
-                  yape_holder: contextMenu.company!.yape_holder,
-                });
-                setContextMenu(null);
-              }}
-            >
-              <Edit className="mr-2 w-4 h-4" /> Editar
-            </div>
-            <div className="-mx-1 my-1 h-px bg-muted" />
-            <div
-              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-red-600"
-              onClick={() => {
-                handleDelete(contextMenu.company!.id);
-                setContextMenu(null);
-              }}
-            >
-              <Trash2 className="mr-2 w-4 h-4" /> Eliminar
-            </div>
-          </div>
-        </div>
-      )}
-
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 py-5 text-left">
             <DialogTitle>
               {editingCompany ? "Editar comercio" : "Nuevo comercio"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+            <h3 className="text-sm font-semibold">Datos del comercio</h3>
             <div className="space-y-2">
               <Label htmlFor="name">Nombre Comercial</Label>
               <Input
@@ -898,7 +849,7 @@ export default function Companies() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="ruc">RUC (Opcional)</Label>
                 <Input id="ruc" {...register("ruc")} placeholder="20..." />
@@ -909,7 +860,7 @@ export default function Companies() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="district">Distrito</Label>
                 <DistrictSelect id="district" {...register("district")} placeholder="—" />
@@ -924,7 +875,7 @@ export default function Companies() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="email">Correo</Label>
                 <Input id="email" type="email" {...register("email")} placeholder="ventas@negocio.com" />
@@ -936,7 +887,8 @@ export default function Companies() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+            <h3 className="border-t pt-4 text-sm font-semibold">Datos de pago</h3>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 rounded-lg border p-4">
               <div className="space-y-2">
                 <Label htmlFor="yape_number">Yape (número)</Label>
                 <Input id="yape_number" {...register("yape_number")} placeholder="999 999 999" />
@@ -945,10 +897,11 @@ export default function Companies() {
                 <Label htmlFor="yape_holder">Titular del Yape</Label>
                 <Input id="yape_holder" {...register("yape_holder")} placeholder="Nombre que aparece en Yape" />
               </div>
-              <p className="col-span-2 text-xs text-emerald-800">A esta cuenta se le paga lo cobrado en sus entregas.</p>
+              <p className="sm:col-span-2 text-xs text-emerald-800">A esta cuenta se le paga lo cobrado en sus entregas.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 rounded-lg border p-3">
+            <h3 className="text-sm font-semibold">Tarifa y facturación</h3>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-center rounded-lg border p-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox checked={!!invoiceIgv} onCheckedChange={(v) => setValue("invoice_igv", !!v)} />
                 Factura con IGV (tarifa × 1.18)
@@ -957,16 +910,12 @@ export default function Companies() {
                 <Label htmlFor="t1_rate">Tarifa T1 pactada (S/.)</Label>
                 <Input id="t1_rate" type="number" step="0.5" min="0" {...register("t1_rate")} placeholder="Vacío = 10" />
               </div>
-              <label className="col-span-2 flex cursor-pointer items-start gap-2 text-sm">
-                <Checkbox className="mt-0.5" checked={!!skipCutoff} onCheckedChange={(v) => setValue("skip_cutoff", !!v)} />
-                <span>
-                  Comercio prioritario: sin horario de corte
-                  <span className="block text-xs text-muted-foreground">Sus pedidos entran para el mismo día aunque lleguen después de las 8:00 / 11:59.</span>
-                </span>
-              </label>
+              <p className="sm:col-span-2 text-xs text-muted-foreground">La prioridad se activa automáticamente al registrar inventario para este comercio.</p>
             </div>
 
-            <div className="flex justify-end pt-4">
+            </div>
+            <div className="flex shrink-0 justify-end gap-2 border-t bg-background px-6 py-4">
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting && (
                   <Loader2 className="mr-2 w-4 h-4 animate-spin" />
@@ -1026,6 +975,11 @@ export default function Companies() {
           }
         }}
       />
+      {viewAsFor && profile?.role === "admin" && (
+        <CompanyViewAsDialog key={viewAsFor.id} company={viewAsFor}
+          onClose={() => setViewAsFor(null)}
+          onManageAccess={() => { setAccessPrefill(null); setAccessFor(viewAsFor); setViewAsFor(null); }} />
+      )}
     </div>
   );
 }

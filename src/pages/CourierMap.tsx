@@ -214,7 +214,7 @@ export default function CourierMap() {
       const { data } = await supabase
         .from("profiles")
         .select("*")
-        .eq("is_courier", true)
+        .eq("role", "courier")
         .order("full_name", { ascending: true });
       if (data) setProfiles(data);
       await Promise.all([loadLocations(), loadOrders()]);
@@ -389,8 +389,8 @@ export default function CourierMap() {
   const courierName = (id: string | null) => profiles.find((p) => p.id === id)?.full_name || "—";
 
   return (
-    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)]">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div data-page="courier-map" className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)]">
+      <div data-page-header="true" className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold">Mapa</h1>
           <span
@@ -688,7 +688,7 @@ function CourierCard({
   const name = c.profile.full_name || "Motorizado";
   const staff = isStaffRole(c.profile);
   return (
-    <div
+    <div data-page="courier-map"
       role="button"
       tabIndex={0}
       onClick={onSelect}

@@ -77,7 +77,7 @@ export default function Dashboard() {
     const { data: couriersData } = await supabase
       .from("profiles")
       .select("*")
-      .eq("is_courier", true)
+      .eq("role", "courier")
       .order("full_name", { ascending: true });
 
     const { data: companiesData } = await supabase
@@ -230,8 +230,8 @@ export default function Dashboard() {
 
   if (profile?.role === "courier") {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Bienvenido, {profile.full_name}</h1>
+      <div data-page="dashboard" className="space-y-6">
+        <div data-page-header="true"><h1 className="text-3xl font-bold">Bienvenido, {profile.full_name}</h1></div>
         <p className="text-gray-500">Aquí están tus tareas para hoy.</p>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -265,8 +265,8 @@ export default function Dashboard() {
 
   // Admin and Staff
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 justify-between md:flex-row md:items-center">
+    <div data-page="dashboard" className="space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-4 justify-between md:flex-row md:items-center">
         <h1 className="text-3xl font-bold">Dashboard</h1>
 
         <PublicFormSwitch />

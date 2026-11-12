@@ -9,8 +9,8 @@ import { ArrowLeft } from "lucide-react";
 export default function NewOrder() {
   const { company, loading } = useMyCompany();
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
+    <div data-page="new-order" className="space-y-4">
+      <div data-page-header="true" className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
           <Link to="/mis-pedidos" title="Volver a mis pedidos">
             <ArrowLeft className="h-5 w-5" />

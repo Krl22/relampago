@@ -2,9 +2,9 @@ import type { Database } from "../types/database";
 
 type ProfileLike = Pick<Database["public"]["Tables"]["profiles"]["Row"], "role" | "is_courier">;
 
-/** ¿Este perfil reparte? Motorizados siempre; admin/staff solo si tienen is_courier. */
+/** El reparto requiere una cuenta independiente de motorizado. */
 export function actsAsCourier(profile: ProfileLike | null | undefined): boolean {
-  return !!profile && (profile.role === "courier" || profile.is_courier);
+  return profile?.role === "courier";
 }
 
 /** ¿Es admin o staff? (independiente de si además reparte) */

@@ -1,3 +1,5 @@
+import { RowActions, RowActionsButton, TableActionsHint } from "../components/RowActions";
+import { CalendarDays } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -9,7 +11,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Checkbox } from "../components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { PICKUP_STATUS_META, districtName, formatTimeWindow } from "../lib/orderMeta";
 import { DistrictSelect } from "../components/DistrictSelect";
@@ -17,10 +19,11 @@ import { googleMapsUrl } from "../lib/mapIcons";
 import { useAuth } from "../components/AuthProvider";
 import { Check, ExternalLink, Loader2, Plus, RefreshCw, UserPlus, Wifi, WifiOff, XCircle, Ban, PackageOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { pickupCounts } from "../lib/pickupCounts";
 
 type Pickup = Database["public"]["Tables"]["pickups"]["Row"] & {
   companies: { name: string } | null;
-  pickup_assignments: { courier_id: string; picked_up_at: string | null; profiles: { full_name: string | null } | null }[];
+  pickup_assignments: { courier_id: string; picked_up_at: string | null; packages_count: number | null; profiles: { full_name: string | null } | null }[];
   orders: { id: string; order_number: number; recipient_name: string | null; destination_district: string | null; status: string }[];
 };
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -31,18 +34,20 @@ const selectClass =
   "flex h-9 items-center rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring";
 
 const PICKUP_SELECT =
-  "*, companies(name), pickup_assignments(courier_id, picked_up_at, profiles(full_name)), orders(id, order_number, recipient_name, destination_district, status)";
+  "*, companies(name), pickup_assignments(courier_id, picked_up_at, packages_count, profiles(full_name)), orders(id, order_number, recipient_name, destination_district, status)";
 
 export default function Pickups() {
   const { user } = useAuth();
   const [day, setDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
-  const [statusFilter, setStatusFilter] = useState<"open" | "all" | PickupStatus>("open");
+  const [statusFilter, setStatusFilter] = useState<"open" | "all" | PickupStatus>("all");
   const [pickups, setPickups] = useState<Pickup[]>([]);
   const [couriers, setCouriers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [realtime, setRealtime] = useState(false);
   const [assigning, setAssigning] = useState<Pickup | null>(null);
   const [creating, setCreating] = useState(false);
+  const [rescheduling, setRescheduling] = useState<Pickup | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
 
   const [reloadToken, setReloadToken] = useState(0);
   const load = useCallback(async () => setReloadToken((t) => t + 1), []);
@@ -71,7 +76,7 @@ export default function Pickups() {
     supabase
       .from("profiles")
       .select("*")
-      .eq("is_courier", true)
+      .eq("role", "courier")
       .order("full_name")
       .then(({ data }) => setCouriers(data ?? []));
   }, []);
@@ -87,18 +92,9 @@ export default function Pickups() {
   }, [load]);
 
   const setStatus = async (p: Pickup, status: PickupStatus) => {
-    if (status === "picked_up" && p.pickup_assignments.length > 0) {
-      // Marcar todas las asignaciones: el trigger deja el recojo en picked_up y los pedidos en "recogido"
-      const { error } = await supabase
-        .from("pickup_assignments")
-        .update({ picked_up_at: new Date().toISOString() })
-        .eq("pickup_id", p.id)
-        .is("picked_up_at", null);
-      if (error) alert(error.message);
-    } else {
-      const { error } = await supabase.from("pickups").update({ status }).eq("id", p.id);
-      if (error) alert(error.message);
-    }
+    if (status === "picked_up" && !globalThis.confirm("¿Cerrar todo el recojo manualmente? Sus pedidos quedarán recogidos aunque el conteo no esté completo. Esto no cambia la cantidad declarada por los motorizados.")) return;
+    const { error } = await supabase.from("pickups").update({ status }).eq("id", p.id);
+    if (error) alert(error.message);
     await load();
   };
 
@@ -121,8 +117,8 @@ export default function Pickups() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div data-page="pickups" className="space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold">Recojos</h1>
           <span
@@ -162,6 +158,8 @@ export default function Pickups() {
         </div>
       </div>
 
+      <p className="text-sm text-muted-foreground">Los recojos se conservan aunque no tengan pedidos. Se muestran todos los estados del día por defecto; cambia la fecha para consultar días anteriores.</p>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="Recojos del día" value={stats.total} />
         <Stat label="Sin asignar" value={stats.pending} className="text-yellow-700" />
@@ -177,6 +175,7 @@ export default function Pickups() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-3"><TableActionsHint /></div>
           {loading ? (
             <div className="py-6 text-center text-sm text-muted-foreground">Cargando…</div>
           ) : pickups.length === 0 ? (
@@ -194,20 +193,28 @@ export default function Pickups() {
                     <TableHead>Dirección</TableHead>
                     <TableHead>Contacto</TableHead>
                     <TableHead>Horario</TableHead>
-                    <TableHead>Pqt</TableHead>
+                    <TableHead>Paquetes</TableHead>
                     <TableHead>Pedidos</TableHead>
                     <TableHead>Motorizados</TableHead>
                     <TableHead>Estado</TableHead>
-                    <TableHead>Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pickups.map((p) => {
                     const window = formatTimeWindow(p.pickup_after, p.pickup_before);
                     const open = p.status === "pending" || p.status === "assigned";
+                    const counts = pickupCounts(p.packages_count, p.received_packages);
                     return (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">#{p.pickup_number}</TableCell>
+                      <RowActions key={p.id} label={`Recojo #${p.pickup_number}`} actions={[
+                        { label: "Asignar motorizados", icon: UserPlus, disabled: !open, onSelect: () => setAssigning(p) },
+                        { label: "Cambiar fecha", icon: CalendarDays, disabled: !open, onSelect: () => { setRescheduling(p); setRescheduleDate(p.scheduled_date); } },
+                        { label: "Marcar recogido", icon: Check, disabled: !open, onSelect: () => { void setStatus(p, "picked_up"); } },
+                        { label: "No se pudo recoger", icon: XCircle, disabled: !open, onSelect: () => { void setStatus(p, "failed"); } },
+                        { label: "Reabrir recojo", icon: RefreshCw, disabled: open, onSelect: () => { void setStatus(p, p.pickup_assignments.length ? "assigned" : "pending"); } },
+                        { label: "Anular recojo", icon: Ban, disabled: !open, destructive: true, onSelect: () => { if (globalThis.confirm("¿Anular este recojo?")) void setStatus(p, "cancelled"); } },
+                      ]}>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs text-muted-foreground"><RowActionsButton />#{p.pickup_number}</TableCell>
                         <TableCell className="whitespace-nowrap font-medium">{p.companies?.name ?? "—"}</TableCell>
                         <TableCell className="max-w-[280px]">
                           <div className="truncate" title={p.address}>
@@ -228,10 +235,14 @@ export default function Pickups() {
                           {p.contact_phone && <div className="text-muted-foreground">{p.contact_phone}</div>}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">{window ?? "—"}</TableCell>
-                        <TableCell>{p.packages_count ?? "—"}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          <div>Esperados: <b>{counts.expected ?? "—"}</b></div>
+                          <div>Recibidos: <b>{counts.received || (open ? 0 : "Sin registrar")}</b></div>
+                          {open && counts.remaining != null && <div className={counts.partial ? "text-amber-700" : "text-muted-foreground"}>Pendientes: {counts.remaining}</div>}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {p.orders.length === 0 ? (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-muted-foreground">Sin pedido asociado</span>
                           ) : (
                             <span title={p.orders.map((o) => `#${o.order_number} ${o.recipient_name} (${districtName(o.destination_district)})`).join("\n")}>
                               {p.orders.length} pedido{p.orders.length === 1 ? "" : "s"}
@@ -250,47 +261,19 @@ export default function Pickups() {
                               >
                                 {a.picked_up_at && <Check className="h-3 w-3" />}
                                 {a.profiles?.full_name ?? "—"}
+                                {a.packages_count != null && ` · ${a.packages_count} pqt`}
                               </span>
                             ))}
-                            {open && (
-                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setAssigning(p)}>
-                                <UserPlus className="mr-1 h-3.5 w-3.5" /> {p.pickup_assignments.length ? "Cambiar" : "Asignar"}
-                              </Button>
-                            )}
+
                           </div>
                         </TableCell>
                         <TableCell>
                           <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", PICKUP_STATUS_META[p.status].badge)}>
-                            {PICKUP_STATUS_META[p.status].label}
+                            {open && counts.partial ? "Parcial" : PICKUP_STATUS_META[p.status].label}
                           </span>
                         </TableCell>
-                        <TableCell>
-                          {open ? (
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-green-700" onClick={() => void setStatus(p, "picked_up")} title="Marcar recogido">
-                                <Check className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-red-700" onClick={() => void setStatus(p, "failed")} title="No se pudo recoger">
-                                <XCircle className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-gray-600" onClick={() => globalThis.confirm("¿Anular este recojo?") && void setStatus(p, "cancelled")} title="Anular">
-                                <Ban className="h-3.5 w-3.5" />
-                              </Button>
-                              <input
-                                type="date"
-                                value={p.scheduled_date}
-                                onChange={(e) => void moveToDay(p, e.target.value)}
-                                className="h-7 w-[118px] rounded-md border px-1 text-xs"
-                                title="Mover a otro día (sus pedidos pendientes se mueven también)"
-                              />
-                            </div>
-                          ) : (
-                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void setStatus(p, p.pickup_assignments.length ? "assigned" : "pending")}>
-                              Reabrir
-                            </Button>
-                          )}
-                        </TableCell>
                       </TableRow>
+                      </RowActions>
                     );
                   })}
                 </TableBody>
@@ -300,6 +283,16 @@ export default function Pickups() {
         </CardContent>
       </Card>
 
+      <Dialog open={!!rescheduling} onOpenChange={(open) => { if (!open) setRescheduling(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Cambiar fecha del recojo #{rescheduling?.pickup_number}</DialogTitle>
+            <DialogDescription>Los pedidos pendientes asociados se moverán al mismo día.</DialogDescription></DialogHeader>
+          <Label htmlFor="pickup-date">Fecha de atención</Label>
+          <Input id="pickup-date" type="date" value={rescheduleDate} onChange={(event) => setRescheduleDate(event.target.value)} />
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRescheduling(null)}>Cancelar</Button>
+            <Button disabled={!rescheduleDate} onClick={() => { if (rescheduling) void moveToDay(rescheduling, rescheduleDate).then(() => setRescheduling(null)); }}>Guardar fecha</Button></div>
+        </DialogContent>
+      </Dialog>
       <AssignDialog pickup={assigning} couriers={couriers} onClose={() => setAssigning(null)} onSaved={load} />
       <NewPickupDialog open={creating} onClose={() => setCreating(false)} onSaved={load} defaultDate={day} createdBy={user?.id ?? null} />
     </div>
@@ -507,6 +500,7 @@ function NewPickupDialog({
       <DialogContent className="max-h-[92dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo recojo</DialogTitle>
+          <DialogDescription>Puedes registrar un recojo sin crear un pedido. Después, asígnalo a un motorizado para que confirme cuántos paquetes recibió.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
@@ -572,8 +566,9 @@ function NewPickupDialog({
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
-              <Label>Paquetes</Label>
+              <Label>Paquetes esperados (opcional)</Label>
               <Input type="number" min="1" value={form.packages_count} onChange={(e) => setForm({ ...form, packages_count: e.target.value })} />
+              <p className="text-xs text-muted-foreground">Si no sabes la cantidad, déjalo vacío. El motorizado registrará el total recibido.</p>
             </div>
             <div className="col-span-2 space-y-2">
               <Label>Notas</Label>

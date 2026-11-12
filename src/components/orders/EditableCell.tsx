@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type EditorType = "text" | "number" | "select" | "time" | "date" | "checkbox";
@@ -61,6 +61,12 @@ function CellEditor({
 }: Pick<EditableCellProps, "value" | "type" | "options" | "step" | "onCancel" | "onSave">) {
   const [draft, setDraft] = useState(value == null ? "" : String(value));
   const committedRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
 
   const commit = (v: string, move?: "next" | "prev") => {
     if (committedRef.current) return;
@@ -117,8 +123,7 @@ function CellEditor({
 
   return (
     <input
-      autoFocus
-      ref={(el) => el?.select()}
+      ref={inputRef}
       type={type === "number" ? "number" : type === "time" ? "time" : type === "date" ? "date" : "text"}
       step={step}
       value={draft}

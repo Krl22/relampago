@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { callAdminUsers } from "../lib/adminUsers";
+import { RowActions, RowActionsButton, TableActionsHint } from "../components/RowActions";
+import { useAuth } from "../components/AuthProvider";
+import { getImpersonation, startImpersonation } from "../lib/impersonation";
+import { Eye } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { Database } from "../types/database";
 import {
@@ -27,8 +31,6 @@ import {
 } from "../components/ui/dialog";
 
 import { Label } from "../components/ui/label";
-import { Checkbox } from "../components/ui/checkbox";
-import { ViewAsButton } from "../components/ViewAsButton";
 import {
   Loader2,
   Plus,
@@ -39,9 +41,13 @@ import {
   ArrowDown,
   Edit,
   Trash2,
+  FileText,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useDesign } from "../components/design/DesignContext";
+import { savedList } from "../lib/recordNavigation";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -56,8 +62,12 @@ type FilterConfig = {
 };
 
 export default function Couriers() {
+  const { mode } = useDesign();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const memory = savedList(location.state, "courierList", {name:"",date:""});
+  const { profile, user } = useAuth();
   const [couriers, setCouriers] = useState<Profile[]>([]);
-  const [staffProfiles, setStaffProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -66,20 +76,12 @@ export default function Couriers() {
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editingCourier, setEditingCourier] = useState<Profile | null>(null);
   const [editName, setEditName] = useState("");
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    courier: Profile | null;
-  } | null>(null);
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
-  const [rowEditName, setRowEditName] = useState<string>("");
-
   // Filtering and Sorting State
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
+  const [sortConfig, setSortConfig] = useState<SortConfig>(memory?.sortConfig ?? {
     key: "created_at",
     direction: "desc",
   });
-  const [filters, setFilters] = useState<FilterConfig>({
+  const [filters, setFilters] = useState<FilterConfig>(memory?.filters ?? {
     name: "",
     date: "",
   });
@@ -91,32 +93,7 @@ export default function Couriers() {
 
   useEffect(() => {
     fetchCouriers();
-    fetchStaff();
   }, []);
-
-  const fetchStaff = async () => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .in("role", ["admin", "staff"])
-      .order("full_name", { ascending: true });
-    if (data) setStaffProfiles(data);
-  };
-
-  // Admin/staff que además salen a repartir: aparecen en asignación, mapa y "Mis Envíos".
-  const toggleStaffDelivers = async (id: string, delivers: boolean) => {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ is_courier: delivers })
-      .eq("id", id);
-    if (error) {
-      alert("Error al actualizar: " + error.message);
-      return;
-    }
-    setStaffProfiles((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, is_courier: delivers } : p)),
-    );
-  };
 
   const fetchCouriers = async () => {
     try {
@@ -144,57 +121,8 @@ export default function Couriers() {
     setCreateError(null);
     setCreateSuccess(null);
 
-    // 1. Create a temporary Supabase client to avoid logging out the admin
-    const tempClient = createClient(
-      import.meta.env.VITE_SUPABASE_URL,
-      import.meta.env.VITE_SUPABASE_ANON_KEY,
-      {
-        auth: {
-          persistSession: false, // Don't save session to localStorage
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      },
-    );
-
     try {
-      // 2. Sign up the new user
-      const { data: authData, error: authError } = await tempClient.auth.signUp(
-        {
-          email,
-          password,
-          options: {
-            data: {
-              full_name: fullName,
-              role: "courier", // Pass metadata directly during signup
-            },
-          },
-        },
-      );
-
-      if (authError) throw authError;
-
-      if (!authData.user) {
-        throw new Error("No se pudo crear el usuario. Intenta de nuevo.");
-      }
-
-      const newUserId = authData.user.id;
-
-      // 3. El trigger crea el perfil como 'client'; aquí el admin lo sube a motorizado.
-      // upsert cubre ambos casos (fila creada por el trigger o aún no).
-      const { data: profileRow, error: profileError } = await supabase
-        .from("profiles")
-        .upsert({ id: newUserId, full_name: fullName, role: "courier" })
-        .select("role")
-        .single();
-
-      if (profileError || profileRow?.role !== "courier") {
-        console.error("Error asignando rol de motorizado:", profileError);
-        throw new Error(
-          "Usuario creado, pero falló al asignar el rol de motorizado. Revisa la pantalla de Motorizados o contacta soporte.",
-        );
-      }
-
+      await callAdminUsers({ action: "create_courier", email: email.trim(), password, full_name: fullName.trim() });
       setCreateSuccess("Motorizado creado exitosamente.");
       setEmail("");
       setPassword("");
@@ -326,8 +254,8 @@ export default function Couriers() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div data-page="couriers" className="space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Motorizados</h1>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -338,7 +266,8 @@ export default function Couriers() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Registrar Nuevo Motorizado</DialogTitle>
+              <DialogTitle>Registrar cuenta de motorizado</DialogTitle>
+              <p className="text-sm text-muted-foreground">Usa un correo distinto al de la cuenta administrativa. Esta cuenta solo tendrá permisos de motorizado.</p>
             </DialogHeader>
 
             {createError && (
@@ -384,9 +313,9 @@ export default function Couriers() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 8 caracteres"
                   required
-                  minLength={6}
+                  minLength={8}
                 />
               </div>
 
@@ -410,10 +339,7 @@ export default function Couriers() {
       <Card>
         <CardHeader>
           <CardTitle>Gestión de Motorizados</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Utiliza los filtros en la cabecera de la tabla para buscar
-            motorizados específicos.
-          </p>
+          <TableActionsHint />
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -440,7 +366,6 @@ export default function Couriers() {
                         Fecha Registro <SortIcon columnKey="created_at" />
                       </div>
                     </TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                   {/* Filter Row */}
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -457,7 +382,7 @@ export default function Couriers() {
                         className="h-8 text-xs"
                       />
                     </TableCell>
-                    <TableCell className="p-2"></TableCell>
+                    <TableCell />
                     <TableCell className="p-2">
                       <Input
                         placeholder="dd/mm/yyyy"
@@ -477,7 +402,7 @@ export default function Couriers() {
                   {filteredAndSortedCouriers.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={3}
                         className="py-8 text-center text-muted-foreground"
                       >
                         No hay motorizados registrados con los filtros
@@ -486,28 +411,17 @@ export default function Couriers() {
                     </TableRow>
                   ) : (
                     filteredAndSortedCouriers.map((courier) => (
-                      <TableRow
-                        key={courier.id}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setContextMenu({
-                            x: e.clientX,
-                            y: e.clientY,
-                            courier,
-                          });
-                        }}
-                      >
-                        <TableCell className="font-medium">
-                          {editingRowId === courier.id ? (
-                            <Input
-                              value={rowEditName}
-                              onChange={(e) => setRowEditName(e.target.value)}
-                              className="h-8 text-xs"
-                            />
-                          ) : (
-                            courier.full_name || "Sin nombre"
-                          )}
-                        </TableCell>
+                      <RowActions key={courier.id} label={courier.full_name || "Motorizado"} actions={[
+                        ...(profile?.role === "admin" && mode === "lightning" ? [{label:"Abrir ficha del motorizado",icon:FileText,onSelect:()=>navigate(`/couriers/${courier.id}`,{state:{courierList:{filters,sortConfig}}})}] : []),
+                        { label: "Editar motorizado", icon: Edit, onSelect: () => { setEditingCourier(courier); setEditName(courier.full_name || ""); setIsEditDialogOpen(true); } },
+                        ...(profile?.role === "admin" && courier.id !== user?.id && !getImpersonation() ? [{ label: "Ver como motorizado", icon: Eye, onSelect: () => {
+                          if (!globalThis.confirm(`Vas a entrar como ${courier.full_name || "este motorizado"}. Las acciones son reales y quedan registradas. Usa Volver a mi cuenta para salir.`)) return;
+                          void startImpersonation({ id: courier.id, name: courier.full_name }, profile.full_name).catch((error: Error) => alert(error.message));
+                        } }] : []),
+                        { label: "Eliminar motorizado", icon: Trash2, destructive: true, onSelect: () => { void handleDeleteCourier(courier.id); } },
+                      ]}>
+                      <TableRow>
+                        <TableCell className="font-medium"><RowActionsButton />{profile?.role === "admin" && mode === "lightning" ? <Link to={`/couriers/${courier.id}`} state={{courierList:{filters,sortConfig}}} className="text-primary hover:underline" title={`Abrir ficha de ${courier.full_name || "motorizado"}`}>{courier.full_name || "Sin nombre"}</Link> : courier.full_name || "Sin nombre"}</TableCell>
                         <TableCell>
                           <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
                             Motorizado
@@ -524,16 +438,8 @@ export default function Couriers() {
                               )
                             : "-"}
                         </TableCell>
-                        <TableCell className="text-right">
-                          {editingRowId === courier.id ? (
-                            <span className="text-xs text-muted-foreground">
-                              Editando...
-                            </span>
-                          ) : (
-                            <ViewAsButton target={{ id: courier.id, full_name: courier.full_name, role: "courier" }} />
-                          )}
-                        </TableCell>
                       </TableRow>
+                      </RowActions>
                     ))
                   )}
                 </TableBody>
@@ -543,112 +449,10 @@ export default function Couriers() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Admins y staff que también reparten</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Marca a quien salga a repartir cuando falte un motorizado: podrá recibir pedidos,
-            aparecerá en el mapa y verá "Mis Envíos" en su menú.
-          </p>
-        </CardHeader>
-        <CardContent>
-          {staffProfiles.length === 0 ? (
-            <div className="py-2 text-sm text-muted-foreground">No hay admins ni staff registrados.</div>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {staffProfiles.map((p) => (
-                <label
-                  key={p.id}
-                  htmlFor={`delivers-${p.id}`}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-muted/50"
-                >
-                  <Checkbox
-                    id={`delivers-${p.id}`}
-                    checked={p.is_courier}
-                    onCheckedChange={(v) => void toggleStaffDelivers(p.id, !!v)}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{p.full_name || "Sin nombre"}</div>
-                    <div className="text-xs capitalize text-muted-foreground">{p.role}</div>
-                  </div>
-                  <ViewAsButton compact target={{ id: p.id, full_name: p.full_name, role: p.role }} />
-                </label>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {editingRowId && (
-        <div className="flex gap-4 justify-end">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setEditingRowId(null);
-              setRowEditName("");
-            }}
-          >
-            Cancelar
-          </Button>
-          <Button
-            onClick={async () => {
-              if (!editingRowId) return;
-              try {
-                const { error } = await supabase
-                  .from("profiles")
-                  .update({ full_name: rowEditName })
-                  .eq("id", editingRowId);
-                if (error) throw error;
-                setEditingRowId(null);
-                setRowEditName("");
-                fetchCouriers();
-              } catch (err) {
-                console.error("Error saving courier inline:", err);
-                alert("Error al guardar cambios.");
-              }
-            }}
-          >
-            Guardar Cambios
-          </Button>
-        </div>
-      )}
-
-      {contextMenu && contextMenu.courier && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setContextMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu(null);
-          }}
-        >
-          <div
-            className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
-          >
-            <div
-              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setEditingRowId(contextMenu.courier!.id);
-                setRowEditName(contextMenu.courier!.full_name || "");
-                setContextMenu(null);
-              }}
-            >
-              <Edit className="mr-2 w-4 h-4" /> Editar
-            </div>
-            <div className="-mx-1 my-1 h-px bg-muted" />
-            <div
-              className="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-red-600"
-              onClick={() => {
-                handleDeleteCourier(contextMenu.courier!.id);
-                setContextMenu(null);
-              }}
-            >
-              <Trash2 className="mr-2 w-4 h-4" /> Eliminar
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+        <p className="font-medium">Cuentas separadas para administrar y repartir</p>
+        <p className="mt-1 text-muted-foreground">Si un administrador sale a repartir, registra su cuenta secundaria con Nuevo motorizado y otro correo. Los pedidos, recojos y ubicaciones se asignan a esa cuenta.</p>
+      </div>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>

@@ -221,17 +221,17 @@ export default function Coverage({ standalone = false }: { standalone?: boolean 
 
   if (!standalone) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Tarifario y mapa de cobertura</h1>
+      <div data-page="coverage" className="space-y-6">
+        <div data-page-header="true"><h1 className="text-3xl font-bold">Tarifario y mapa de cobertura</h1></div>
         {content}
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 lg:px-8">
+    <div data-page="coverage-public" className="min-h-screen bg-gray-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-col items-center gap-3 text-center">
+        <div data-page-header="true" className="flex flex-col items-center gap-3 text-center">
           <div className="rounded-full bg-primary/10 p-3">
             <Truck className="h-9 w-9 text-primary" />
           </div>

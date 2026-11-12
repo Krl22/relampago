@@ -1,0 +1,8 @@
+{
+  "nodeModulesDir": "none",
+  "lock": true,
+  "tasks": {
+    "check:chat": "deno check functions/enterprise-chat/index.ts functions/telegram-webhook/index.ts functions/telegram-worker/index.ts",
+    "test:chat": "deno test --allow-read --allow-env --allow-sys functions/enterprise-chat/chat_test.ts functions/enterprise-chat/telegram_test.ts functions/enterprise-chat/reports_test.ts functions/enterprise-chat/usage_test.ts functions/enterprise-chat/admin-access_test.ts tests/enterprise_chat_test.ts"
+  }
+}

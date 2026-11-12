@@ -1,18 +1,17 @@
+import { RowActions, RowActionsButton } from "../components/RowActions";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { addDays, format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { supabase } from "../lib/supabase";
 import type { Database, OrderStatus } from "../types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { useAuth } from "../components/AuthProvider";
+import { downloadOrderBackup, parseOrderBackup } from "../lib/orderBackup";
 import { Label } from "../components/ui/label";
-import { Textarea } from "../components/ui/textarea";
 import {
   ArrowDown,
   ArrowUp,
@@ -21,6 +20,7 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
+  Download,
   Loader2,
   MapPin,
   MapPinOff,
@@ -32,12 +32,10 @@ import {
 import { ORDER_STATUSES, STATUS_META, districtName } from "../lib/orderMeta";
 import { priceText, useDistricts } from "../lib/districts";
 import { StatusBadge } from "../components/OrderBadges";
-import { LocationPicker } from "../components/LocationPicker";
 import { googleMapsUrl } from "../lib/mapIcons";
-import { TARIFF_AMOUNTS, TARIFF_CODES, computeFee, tariffFor } from "../lib/tariff";
+import { TARIFF_AMOUNTS, TARIFF_CODES, computeFee } from "../lib/tariff";
 import { EditableCell, type CellValue, type EditorType, type Option } from "../components/orders/EditableCell";
 import { ColumnFilter, isFilterActive, type FilterValue } from "../components/orders/ColumnFilter";
-import type { LatLng } from "../lib/geo";
 import { cn } from "@/lib/utils";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
@@ -73,14 +71,6 @@ type Column = {
   render: (o: Order) => React.ReactNode;
 };
 
-const orderSchema = z.object({
-  tariff: z.string().optional(),
-  surcharge: z.coerce.number().min(0).max(500).optional(),
-  total_amount: z.coerce.number().min(0).optional(),
-  delivery_notes: z.string().optional(),
-});
-type OrderFormValues = z.infer<typeof orderSchema>;
-
 const PAYMENT_METHODS: Option[] = [
   { value: "", label: "—" },
   { value: "Motorizado", label: "Motorizado (efectivo)" },
@@ -93,6 +83,8 @@ const dash = <span className="text-muted-foreground">—</span>;
 const money = (n: number | null | undefined) => (n == null ? dash : `S/ ${Number(n).toFixed(2)}`);
 
 export default function Orders() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const [orders, setOrders] = useState<Order[]>([]);
   const [couriers, setCouriers] = useState<Profile[]>([]);
   const districts = useDistricts();
@@ -115,31 +107,26 @@ export default function Orders() {
   const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false);
   const [bulkCourier, setBulkCourier] = useState("");
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; order: Order } | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // Diálogo "Gestionar": pin en el mapa + tarifa por zona
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [editDestination, setEditDestination] = useState<LatLng | null>(null);
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { isSubmitting },
-  } = useForm<OrderFormValues>({ resolver: zodResolver(orderSchema) as never });
-  const watchedTariff = watch("tariff");
-  const watchedSurcharge = Number(watch("surcharge") ?? 0);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState("");
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
+  const [exportFormat, setExportFormat] = useState<"json" | "xlsx">("json");
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const pageSelectedCount = orders.filter((o) => selectedOrders.includes(o.id)).length;
 
   useEffect(() => {
     supabase
       .from("profiles")
       .select("*")
-      .eq("is_courier", true)
+      .eq("role", "courier")
       .order("full_name", { ascending: true })
       .then(({ data }) => setCouriers(data ?? []));
     supabase
@@ -156,21 +143,6 @@ export default function Orders() {
     }, 350);
     return () => window.clearTimeout(t);
   }, [filters]);
-
-  useEffect(() => {
-    if (editingOrder) {
-      setValue("tariff", editingOrder.tariff || "");
-      setValue("surcharge", Number(editingOrder.surcharge ?? 0));
-      setValue("total_amount", editingOrder.total_amount || 0);
-      setValue("delivery_notes", editingOrder.delivery_notes || "");
-      setUpdateError(null);
-      setEditDestination(
-        editingOrder.destination_lat != null && editingOrder.destination_lng != null
-          ? { lat: editingOrder.destination_lat, lng: editingOrder.destination_lng }
-          : null,
-      );
-    }
-  }, [editingOrder, setValue]);
 
   // ---------------------------------------------------------------------------
   // Columnas
@@ -233,7 +205,7 @@ export default function Orders() {
       },
       {
         key: "created_at",
-        label: "Fecha",
+        label: "Fecha de registro",
         sort: "created_at",
         className: "whitespace-nowrap text-xs",
         filter: dateRange("created_at"),
@@ -241,7 +213,7 @@ export default function Orders() {
       },
       {
         key: "scheduled_date",
-        label: "Para",
+        label: "Fecha de entrega",
         sort: "scheduled_date",
         className: "whitespace-nowrap text-xs",
         filter: dayRange("scheduled_date"),
@@ -405,15 +377,6 @@ export default function Orders() {
         edit: { type: "select", options: () => PAYMENT_METHODS, get: (o) => o.payment_method ?? "", patch: (v) => ({ payment_method: (v as string) || null }) },
         render: (o) => o.payment_method || dash,
       },
-      {
-        key: "agency_name",
-        label: "Agencia",
-        className: "whitespace-nowrap text-xs",
-        edit: { type: "text", get: (o) => o.agency_name ?? "", patch: (v) => ({ agency_name: (v as string) || null, service_type: v ? "agency" : "delivery" }) },
-        render: (o) => o.agency_name || dash,
-      },
-      { key: "agency_destination", label: "Ciudad", className: "whitespace-nowrap text-xs", edit: textEdit("agency_destination"), render: (o) => o.agency_destination || dash },
-      { key: "recipient_dni", label: "DNI", className: "whitespace-nowrap text-xs", edit: textEdit("recipient_dni"), render: (o) => o.recipient_dni || dash },
       { key: "comments", label: "Comentarios", sort: "comments", className: "max-w-[200px] truncate", filter: text("comments"), edit: textEdit("comments"), render: (o) => <span title={o.comments ?? ""}>{o.comments || dash}</span> },
       { key: "delivery_notes", label: "Notas", sort: "delivery_notes", className: "max-w-[200px] truncate", filter: text("delivery_notes"), edit: textEdit("delivery_notes"), render: (o) => <span title={o.delivery_notes ?? ""}>{o.delivery_notes || dash}</span> },
     ];
@@ -498,7 +461,7 @@ export default function Orders() {
         return;
       }
       // Empresa/motorizado cambian datos que vienen del join: recargar en segundo plano
-      if (col.key === "company" || col.key === "courier") reload();
+      if (col.key === "company" || col.key === "courier" || col.key === "origin_type") reload();
     }
     if (move) {
       const idx = editableKeys.indexOf(col.key);
@@ -546,42 +509,54 @@ export default function Orders() {
     reload();
   };
 
-  const onUpdateOrder = async (data: OrderFormValues) => {
-    if (!editingOrder) return;
-    setUpdateError(null);
-    const { data: updated, error } = await supabase
-      .from("orders")
-      .update({
-        tariff: data.tariff || null,
-        surcharge: data.surcharge ?? 0,
-        total_amount: data.total_amount ?? null,
-        delivery_notes: data.delivery_notes || null,
-        destination_lat: editDestination?.lat ?? null,
-        destination_lng: editDestination?.lng ?? null,
-        tariff_zone: editDestination ? (tariffFor(editDestination).zones[0] ?? null) : editingOrder.tariff_zone,
-      })
-      .eq("id", editingOrder.id)
-      .select("id");
-    if (error || !updated || updated.length === 0) {
-      setUpdateError((error as { message?: string } | null)?.message ?? "No se actualizó ningún registro. Verifica permisos.");
-      return;
-    }
-    setIsDialogOpen(false);
-    setEditingOrder(null);
-    reload();
+  const openBulkDelete = () => {
+    if (!isAdmin || !selectedOrders.length) return;
+    setBulkDeleteIds([...selectedOrders]);
+    setBulkDeleteConfirm("");
+    setBulkDeleteError(null);
   };
 
-  const feeInput = (over: Partial<{ tariff: string | null; surcharge: number }> = {}) => ({
-    tariff: over.tariff ?? watchedTariff,
-    surcharge: over.surcharge ?? watchedSurcharge,
-    company: editingOrder?.companies,
-    paymentMethod: editingOrder?.payment_method ?? null,
-    amountCollected: editingOrder?.amount_collected ?? editingOrder?.amount_to_collect ?? 0,
-  });
+  const confirmBulkDelete = async () => {
+    if (!isAdmin || !bulkDeleteIds?.length || bulkDeleteConfirm !== "ELIMINAR" || bulkDeleting) return;
+    setBulkDeleting(true);
+    setBulkDeleteError(null);
+    try {
+      const { data, error } = await supabase.rpc("admin_delete_orders", { p_ids: bulkDeleteIds });
+      if (error) throw error;
+      if (!data || data.length !== bulkDeleteIds.length) throw new Error("No se confirmó el borrado de la selección completa.");
+      const deleted = new Set(data);
+      setOrders((prev) => prev.filter((o) => !deleted.has(o.id)));
+      setSelectedOrders((prev) => prev.filter((id) => !deleted.has(id)));
+      setEditing(null);
+      setBulkDeleteIds(null);
+      setPage(0);
+      reload();
+    } catch (error) {
+      setBulkDeleteError((error as Error).message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
-  const openManage = (o: Order) => {
-    setEditingOrder(o);
-    setIsDialogOpen(true);
+  const exportOrders = async () => {
+    if (!isAdmin || exporting || (exportScope === "selected" && !selectedOrders.length)) return;
+    setExporting(true);
+    setExportError(null);
+    setExportMessage(null);
+    try {
+      const { data, error } = await supabase.rpc("admin_export_orders", { p_ids: exportScope === "selected" ? [...selectedOrders] : null });
+      if (error) throw error;
+      const backup = parseOrderBackup(data);
+      if (exportScope === "selected" && backup.orders.length !== selectedOrders.length) {
+        throw new Error("La selección cambió. Recarga los pedidos antes de descargar.");
+      }
+      await downloadOrderBackup(backup, exportFormat);
+      setExportMessage(`Descarga iniciada: ${backup.orders.length} pedidos. Comprueba que el archivo se guardó y se puede abrir antes de eliminar.`);
+    } catch (error) {
+      setExportError((error as Error).message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const SortIcon = ({ columnKey }: { columnKey: string }) =>
@@ -598,8 +573,8 @@ export default function Orders() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div data-page="orders" className="min-w-0 max-w-full space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Pedidos</h1>
         <p className="text-sm text-muted-foreground">
           Haz clic en cualquier celda para editarla · Enter/Tab guarda · Esc cancela · clic derecho para más acciones.
@@ -610,13 +585,16 @@ export default function Orders() {
         <CardHeader className="pb-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Gestión de Pedidos</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && <Button size="sm" variant="outline" onClick={() => { setExportOpen(true); setExportMessage(null); setExportError(null); }}>
+                <Download className="mr-1 h-3.5 w-3.5" /> Descargar información
+              </Button>}
               {Object.values(filters).some((v) => isFilterActive(v)) && (
                 <Button size="sm" variant="ghost" onClick={() => setFilters({})}>
                   <X className="mr-1 h-3.5 w-3.5" /> Limpiar filtros
                 </Button>
               )}
-              <Button size="sm" variant={isSelectionMode ? "default" : "outline"} onClick={() => setIsSelectionMode((v) => !v)}>
+              <Button size="sm" variant={isSelectionMode ? "default" : "outline"} disabled={bulkDeleting} onClick={() => { setIsSelectionMode((v) => !v); setSelectedOrders([]); }}>
                 <CheckSquare className="mr-1 h-3.5 w-3.5" /> {isSelectionMode ? "Salir de selección" : "Seleccionar"}
               </Button>
             </div>
@@ -624,11 +602,14 @@ export default function Orders() {
         </CardHeader>
         <CardContent>
           {selectedOrders.length > 0 && (
-            <div className="mb-4 flex items-center gap-4 rounded-lg border bg-muted/40 p-2">
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 p-2">
               <span className="text-sm font-medium">{selectedOrders.length} seleccionados</span>
               <Button size="sm" onClick={() => setIsBulkDialogOpen(true)}>
                 Asignar Motorizado
               </Button>
+              {isAdmin && <Button size="sm" variant="destructive" disabled={bulkDeleting} onClick={openBulkDelete}>
+                <Trash2 className="mr-1 h-3.5 w-3.5" /> Eliminar seleccionados
+              </Button>}
               <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelectedOrders([])}>
                 Quitar selección
               </Button>
@@ -659,23 +640,25 @@ export default function Orders() {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-md border">
+          {/* One scroll container keeps the header and row actions visible on both axes. */}
+          <div role="region" aria-label="Tabla de pedidos, desplázate para ver todas las columnas" tabIndex={0} className="max-h-[65dvh] w-full max-w-full overflow-auto rounded-md border">
             <table className="w-full min-w-[2400px] border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <th className="sticky left-0 top-0 z-30 w-10 bg-muted px-1 py-2"><span className="sr-only">Opciones</span></th>
                   {isSelectionMode && (
-                    <th className="w-9 px-2 py-2">
+                    <th className="sticky top-0 z-20 w-9 bg-muted px-2 py-2">
                       <Checkbox
-                        checked={orders.length > 0 && selectedOrders.length === orders.length}
-                        onCheckedChange={(c) => setSelectedOrders(c ? orders.map((o) => o.id) : [])}
-                        aria-label="Seleccionar todo"
+                        checked={orders.length > 0 && pageSelectedCount === orders.length ? true : pageSelectedCount > 0 ? "indeterminate" : false}
+                        onCheckedChange={(c) => setSelectedOrders((prev) => c ? [...new Set([...prev, ...orders.map((o) => o.id)])] : prev.filter((id) => !orders.some((o) => o.id === id)))}
+                        aria-label="Seleccionar pedidos de esta página"
                       />
                     </th>
                   )}
                   {columns.map((col) => (
                     <th
                       key={col.key}
-                      className={cn("whitespace-nowrap px-2 py-2 text-left text-xs font-semibold text-muted-foreground", isFilterActive(filters[col.key]) && "bg-primary/10 text-primary")}
+                      className={cn("sticky top-0 z-20 whitespace-nowrap bg-muted px-2 py-2 text-left text-xs font-semibold text-muted-foreground", isFilterActive(filters[col.key]) && "bg-blue-50 text-primary")}
                     >
                       <span className="inline-flex items-center">
                         <span className={cn(col.sort && "cursor-pointer select-none hover:text-foreground")} onClick={() => col.sort && handleSort(col.key)}>
@@ -697,7 +680,6 @@ export default function Orders() {
                       </span>
                     </th>
                   ))}
-                  <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -717,19 +699,22 @@ export default function Orders() {
                   orders.map((order) => {
                     const proof = order.deliveries?.[0]?.proof_image_url ?? null;
                     return (
-                      <tr
-                        key={order.id}
-                        className={cn("border-b hover:bg-muted/30", savingId === order.id && "opacity-60", selectedOrders.includes(order.id) && "bg-primary/5")}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setContextMenu({ x: e.clientX, y: e.clientY, order });
-                        }}
-                      >
+                      <RowActions key={order.id} label={`Pedido #${order.order_number}`} actions={[
+                        { label: selectedOrders.includes(order.id) ? "Quitar de la selección" : "Seleccionar pedido", icon: CheckSquare, onSelect: () => {
+                          setIsSelectionMode(true);
+                          setSelectedOrders((prev) => prev.includes(order.id) ? prev.filter((id) => id !== order.id) : [...prev, order.id]);
+                        } },
+                        { label: "Ver foto de entrega", icon: Camera, disabled: !proof, onSelect: () => { if (proof) setPreviewImage(proof); } },
+                        { label: "Eliminar pedido", icon: Trash2, destructive: true, onSelect: () => setDeleteTarget(order) },
+                      ]}>
+                      <tr className={cn("group border-b hover:bg-muted/30", savingId === order.id && "opacity-60", selectedOrders.includes(order.id) && "bg-primary/5")}>
+                        <td className="sticky left-0 z-10 w-10 bg-background px-1 py-1 group-hover:bg-muted"><RowActionsButton /></td>
                         {isSelectionMode && (
                           <td className="px-2 py-1">
                             <Checkbox
                               checked={selectedOrders.includes(order.id)}
-                              onCheckedChange={(c) => setSelectedOrders((prev) => (c ? [...prev, order.id] : prev.filter((id) => id !== order.id)))}
+                              onCheckedChange={(c) => setSelectedOrders((prev) => (c ? [...new Set([...prev, order.id])] : prev.filter((id) => id !== order.id)))}
+                              aria-label={`Seleccionar pedido #${order.order_number}`}
                             />
                           </td>
                         )}
@@ -754,20 +739,8 @@ export default function Orders() {
                             </td>
                           ),
                         )}
-                        <td className="whitespace-nowrap px-2 py-1">
-                          <div className="flex gap-0.5">
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Mapa, pin y tarifa por zona" onClick={() => openManage(order)}>
-                              <MapPin className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title={proof ? "Ver foto de entrega" : "Sin foto"} disabled={!proof} onClick={() => proof && setPreviewImage(proof)}>
-                              <Camera className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-red-600 hover:text-red-700" title="Eliminar" onClick={() => setDeleteTarget(order)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </td>
                       </tr>
+                      </RowActions>
                     );
                   })
                 )}
@@ -783,6 +756,7 @@ export default function Orders() {
             <div className="flex items-center gap-2">
               <select
                 value={pageSize}
+                aria-label="Pedidos por página"
                 onChange={(e) => {
                   setPageSize(Number(e.target.value));
                   setPage(0);
@@ -795,13 +769,13 @@ export default function Orders() {
                   </option>
                 ))}
               </select>
-              <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+              <Button variant="outline" size="sm" aria-label="Página anterior" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="tabular-nums">
                 {page + 1} / {Math.max(1, Math.ceil(totalCount / pageSize))}
               </span>
-              <Button variant="outline" size="sm" disabled={(page + 1) * pageSize >= totalCount} onClick={() => setPage((p) => p + 1)}>
+              <Button variant="outline" size="sm" aria-label="Página siguiente" disabled={(page + 1) * pageSize >= totalCount} onClick={() => setPage((p) => p + 1)}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -809,50 +783,19 @@ export default function Orders() {
         </CardContent>
       </Card>
 
-      {/* Menú contextual */}
-      {contextMenu && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setContextMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenu(null);
-          }}
-        >
-          <div className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg" style={{ left: contextMenu.x, top: contextMenu.y }}>
-            <MenuItem icon={<MapPin className="mr-2 h-4 w-4" />} label="Mapa y tarifa por zona" onClick={() => openManage(contextMenu.order)} />
-            <MenuItem
-              icon={<CheckSquare className="mr-2 h-4 w-4" />}
-              label="Seleccionar"
-              onClick={() => {
-                setIsSelectionMode(true);
-                setSelectedOrders((prev) => (prev.includes(contextMenu.order.id) ? prev : [...prev, contextMenu.order.id]));
-              }}
-            />
-            <MenuItem
-              icon={<Camera className="mr-2 h-4 w-4" />}
-              label="Ver foto de entrega"
-              disabled={!contextMenu.order.deliveries?.[0]?.proof_image_url}
-              onClick={() => setPreviewImage(contextMenu.order.deliveries[0].proof_image_url!)}
-            />
-            <div className="-mx-1 my-1 h-px bg-muted" />
-            <MenuItem icon={<Trash2 className="mr-2 h-4 w-4" />} label="Eliminar" className="text-red-600" onClick={() => setDeleteTarget(contextMenu.order)} />
-          </div>
-        </div>
-      )}
-
       {/* Confirmación de borrado */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && !deleting && setDeleteTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>¿Eliminar el pedido #{deleteTarget?.order_number}?</DialogTitle>
+            <DialogDescription>El borrado del pedido es permanente.</DialogDescription>
           </DialogHeader>
           <div className="space-y-1 text-sm">
             <p>
               <b>{deleteTarget?.recipient_name}</b> · {districtName(deleteTarget?.destination_district)} · {deleteTarget?.companies?.name}
             </p>
             <p className="text-muted-foreground">
-              Se borran también su historial y la foto de entrega. Esta acción no se puede deshacer. Si solo quieres cancelarlo, cambia el estado a <b>Anulado</b>.
+              Se borran también su historial, ítems y registros de entrega. Las fotos en Storage no se eliminan. Esta acción no se puede deshacer. Si solo quieres cancelarlo, cambia el estado a <b>Anulado</b>.
             </p>
           </div>
           <div className="flex justify-end gap-2">
@@ -867,114 +810,54 @@ export default function Orders() {
         </DialogContent>
       </Dialog>
 
-      {/* Gestionar: pin + tarifa por zona */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto">
+      <Dialog open={!!bulkDeleteIds} onOpenChange={(open) => { if (!open && !bulkDeleting) setBulkDeleteIds(null); }}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              Pedido #{editingOrder?.order_number} · {editingOrder?.recipient_name}
-            </DialogTitle>
+            <DialogTitle>¿Eliminar {bulkDeleteIds?.length} pedidos seleccionados?</DialogTitle>
+            <DialogDescription>
+              Se eliminarán permanentemente los pedidos, entregas, historial e ítems. No se borran comercios, usuarios, recojos ni archivos de fotos.
+            </DialogDescription>
           </DialogHeader>
-          {updateError && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-600">{updateError}</div>}
-          <form onSubmit={handleSubmit(onUpdateOrder)} className="space-y-5">
-            <div className="space-y-2">
-              <Label>
-                Punto de entrega en el mapa
-                {!editDestination && <span className="ml-2 text-xs font-normal text-amber-700">(sin punto: ubícalo para calcular la tarifa y la ruta del motorizado)</span>}
-              </Label>
-              {isDialogOpen && <LocationPicker value={editDestination} onChange={setEditDestination} heightClass="h-64" />}
-            </div>
+          <p className="text-sm">Descarga y revisa el respaldo JSON antes de limpiar datos que quieras conservar. Se incluyen selecciones hechas en otras páginas.</p>
+          <Label htmlFor="bulk-delete-confirm">Escribe ELIMINAR para confirmar</Label>
+          <Input id="bulk-delete-confirm" value={bulkDeleteConfirm} onChange={(e) => setBulkDeleteConfirm(e.target.value)} disabled={bulkDeleting} autoComplete="off" />
+          {bulkDeleteError && <p role="alert" className="text-sm text-red-600">{bulkDeleteError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={bulkDeleting} onClick={() => setBulkDeleteIds(null)}>Cancelar</Button>
+            <Button variant="destructive" disabled={bulkDeleting || bulkDeleteConfirm !== "ELIMINAR"} onClick={() => void confirmBulkDelete()}>
+              {bulkDeleting && <Loader2 className="mr-1 h-4 w-4 animate-spin" />} Eliminar {bulkDeleteIds?.length} pedidos
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-            {editDestination &&
-              (() => {
-                const z = tariffFor(editDestination);
-                const suggested = computeFee(feeInput({ tariff: z.tariff }));
-                return (
-                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
-                    <span>
-                      Zona del mapa: <b>{z.zones[0] ?? "fuera de cobertura"}</b>
-                      {z.tariff && ` → ${z.tariff} (S/ ${z.amount})`}
-                      {z.flags.includes("zona_roja") && " · ⚠ Zona roja"}
-                      {z.flags.includes("sin_acceso") && " · ⛔ Sin acceso"}
-                    </span>
-                    {z.tariff && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7"
-                        onClick={() => {
-                          setValue("tariff", z.tariff!);
-                          if (suggested != null) setValue("total_amount", suggested);
-                        }}
-                      >
-                        Aplicar {z.tariff}
-                        {suggested != null && ` · S/ ${suggested}`}
-                      </Button>
-                    )}
-                  </div>
-                );
-              })()}
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="tariff">Tarifa</Label>
-                <select
-                  id="tariff"
-                  {...register("tariff", {
-                    onChange: (e) => {
-                      const fee = computeFee(feeInput({ tariff: e.target.value }));
-                      if (fee != null) setValue("total_amount", fee);
-                    },
-                  })}
-                  className="flex h-10 w-full items-center rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Seleccionar...</option>
-                  {TARIFF_CODES.map((t) => (
-                    <option key={t} value={t}>
-                      {t} · S/ {TARIFF_AMOUNTS[t]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="surcharge">Recarga (S/.)</Label>
-                <Input
-                  id="surcharge"
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  {...register("surcharge", {
-                    onChange: (e) => {
-                      const fee = computeFee(feeInput({ surcharge: Number(e.target.value || 0) }));
-                      if (fee != null) setValue("total_amount", fee);
-                    },
-                  })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="total_amount">Monto del servicio</Label>
-                <Input id="total_amount" type="number" step="0.01" {...register("total_amount")} />
-                {editingOrder?.companies?.invoice_igv && <p className="text-[11px] text-muted-foreground">Comercio con factura: incluye IGV 18%.</p>}
-                {editingOrder?.companies?.t1_rate != null && <p className="text-[11px] text-muted-foreground">T1 pactada: S/ {editingOrder.companies.t1_rate}.</p>}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="delivery_notes">Notas de logística</Label>
-              <Textarea id="delivery_notes" {...register("delivery_notes")} placeholder="Instrucciones internas, observaciones de entrega..." />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Cerrar
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Guardar
-              </Button>
-            </div>
-          </form>
+      <Dialog open={exportOpen} onOpenChange={(open) => { if (!exporting) setExportOpen(open); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Descargar información de pedidos</DialogTitle>
+            <DialogDescription>La descarga no elimina datos. Guarda y comprueba el archivo antes de limpiar pedidos.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="export-scope">Pedidos a descargar</Label>
+            <select id="export-scope" value={exportScope} onChange={(e) => setExportScope(e.target.value as "all" | "selected")} disabled={exporting} className="w-full rounded-md border bg-background p-2 text-sm">
+              <option value="all">Todos los pedidos de la base (sin filtros ni paginación)</option>
+              <option value="selected" disabled={!selectedOrders.length}>Solo seleccionados ({selectedOrders.length})</option>
+            </select>
+            <Label htmlFor="export-format">Formato</Label>
+            <select id="export-format" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as "json" | "xlsx")} disabled={exporting} className="w-full rounded-md border bg-background p-2 text-sm">
+              <option value="json">JSON — respaldo con todos los campos originales</option>
+              <option value="xlsx">Excel — consulta de pedidos y registros relacionados</option>
+            </select>
+          </div>
+          <p className="text-xs text-muted-foreground">Incluye entregas, historial, ítems, recojos relacionados y movimientos de stock. Las fotos se conservan como enlaces; no se descargan las imágenes. El JSON es un respaldo de datos de pedidos, no de toda la base, y la app no tiene importación automática.</p>
+          {exportError && <p role="alert" className="text-sm text-red-600">{exportError}</p>}
+          {exportMessage && <p role="status" className="text-sm text-green-700">{exportMessage}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={exporting} onClick={() => setExportOpen(false)}>Cerrar</Button>
+            <Button disabled={exporting || (exportScope === "selected" && !selectedOrders.length)} onClick={() => void exportOrders()}>
+              {exporting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />} {exporting ? "Preparando…" : "Descargar archivo"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1020,21 +903,6 @@ export default function Orders() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function MenuItem({ icon, label, onClick, className, disabled }: { icon: React.ReactNode; label: string; onClick: () => void; className?: string; disabled?: boolean }) {
-  return (
-    <div
-      className={cn(
-        "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
-        disabled && "pointer-events-none opacity-50",
-        className,
-      )}
-      onClick={onClick}
-    >
-      {icon} {label}
     </div>
   );
 }

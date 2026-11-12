@@ -95,6 +95,10 @@ Supabase tables represented in the typed model include:
 
 ## Getting started
 
+### Asistente empresarial (BYOK)
+
+El asistente integrado está en `/asistente`. Incluye OpenAI/Claude/DeepSeek/OpenRouter, claves cifradas por usuario, conversaciones privadas, consultas empresariales exclusivamente de lectura y conexión de un bot personal de Telegram con recordatorios aunque la web esté cerrada. Genera reportes Excel, Word y PDF: descarga privada en la web y archivo adjunto en Telegram. El panel Mi consumo muestra tokens, costos reportados o estimados y filtros por proveedor y conversación. Los originales vencen a las 24 horas y cada descarga comprueba los permisos actuales. Las migraciones, el backend y el programador están desplegados; cada usuario debe conectar sus propias claves y vincular su Telegram. Consulta [la guía de implementación, permisos, pruebas y activación](docs/enterprise-chat.md).
+
 ### Prerequisites
 
 - Node.js 20+

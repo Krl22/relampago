@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
-import path from "path"
+import { fileURLToPath } from 'node:url'
+import { startupAssets } from './scripts/pwa-assets.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -31,9 +32,19 @@ export default defineConfig({
         // La app es una SPA: cualquier ruta cae en index.html (igual que en el servidor).
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        manifestTransforms: [startupAssets],
         // Nunca cachear llamadas a Supabase (auth, REST, storage, realtime).
         navigateFallbackDenylist: [/^\/rest\//, /^\/auth\//],
         runtimeCaching: [
+          {
+            // Solo archivos públicos compilados. Nunca datos del usuario ni respuestas de API.
+            urlPattern: ({ url, sameOrigin }) => sameOrigin && /^\/assets\/.*\.(js|css)$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'relampago-static-assets',
+              expiration: { maxEntries: 180, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
           {
             urlPattern: ({ url }) => url.hostname.endsWith('.supabase.co'),
             handler: 'NetworkOnly',
@@ -53,7 +64,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
 })

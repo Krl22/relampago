@@ -1,4 +1,9 @@
 import { useEffect, useState, useMemo } from "react";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useAuth } from "../components/AuthProvider";
+import { useDesign } from "../components/design/DesignContext";
+import { savedList } from "../lib/recordNavigation";
+import { RowActions, RowActionsButton, TableActionsHint } from "../components/RowActions";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -69,6 +74,12 @@ type FilterConfig = {
 };
 
 export default function Stock() {
+  const { profile } = useAuth();
+  const { mode } = useDesign();
+  const location = useLocation();
+  const memory = savedList(location.state, "stockList", {company:"",product_name:"",quantity:"",unit:"",date:""});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const targetCompany = searchParams.get("company");
   const [stock, setStock] = useState<StockItem[]>([]);
   // Comprometido en pedidos en curso (el stock se descuenta al entregar)
   const [availability, setAvailability] = useState<Map<string, Availability>>(new Map());
@@ -78,11 +89,11 @@ export default function Stock() {
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
 
   // Filtering and Sorting State
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
+  const [sortConfig, setSortConfig] = useState<SortConfig>(memory?.sortConfig ?? {
     key: "created_at",
     direction: "desc",
   });
-  const [filters, setFilters] = useState<FilterConfig>({
+  const [filters, setFilters] = useState<FilterConfig>(memory?.filters ?? {
     company: "",
     product_name: "",
     quantity: "",
@@ -197,7 +208,7 @@ export default function Stock() {
   };
 
   const filteredAndSortedStock = useMemo(() => {
-    let result = [...stock];
+    let result = targetCompany ? stock.filter((item) => item.company_id === targetCompany) : [...stock];
 
     // Filtering
     result = result.filter((item) => {
@@ -260,7 +271,7 @@ export default function Stock() {
     });
 
     return result;
-  }, [stock, filters, sortConfig]);
+  }, [stock, filters, sortConfig, targetCompany]);
 
   const SortIcon = ({ columnKey }: { columnKey: string }) => {
     if (sortConfig.key !== columnKey)
@@ -273,8 +284,8 @@ export default function Stock() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div data-page="stock" className="space-y-6">
+      <div data-page-header="true" className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Inventario Global</h1>
         <Button onClick={openNewDialog}>
           <Plus className="mr-2 w-4 h-4" />
@@ -291,6 +302,10 @@ export default function Stock() {
           </p>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <TableActionsHint />
+            {targetCompany && <Button size="sm" variant="outline" onClick={() => setSearchParams({})}>Mostrar todos los comercios</Button>}
+          </div>
           {loading ? (
             <div className="py-4 text-center">Cargando inventario...</div>
           ) : (
@@ -337,9 +352,6 @@ export default function Stock() {
                       <div className="flex items-center">
                         Última Actualización <SortIcon columnKey="created_at" />
                       </div>
-                    </TableHead>
-                    <TableHead className="text-right whitespace-nowrap">
-                      Acciones
                     </TableHead>
                   </TableRow>
                   {/* Filter Row */}
@@ -409,14 +421,13 @@ export default function Stock() {
                         className="h-8 text-xs min-w-[100px]"
                       />
                     </TableCell>
-                    <TableCell className="p-2"></TableCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredAndSortedStock.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
                         No se encontraron productos con los filtros
@@ -425,12 +436,16 @@ export default function Stock() {
                     </TableRow>
                   ) : (
                     filteredAndSortedStock.map((item) => (
-                      <TableRow key={item.id}>
+                      <RowActions key={item.id} label={item.product_name} actions={[
+                        { label: "Editar producto", icon: Edit, onSelect: () => openEditDialog(item) },
+                        { label: "Eliminar producto", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(item.id); } },
+                      ]}>
+                      <TableRow>
                         <TableCell className="font-medium text-blue-600 whitespace-nowrap">
-                          {item.companies?.name || "Sin asignar"}
+                          {profile?.role === "admin" && mode === "lightning" && item.company_id && item.companies?.name ? <Link to={`/comercios/${item.company_id}`} state={{recordOrigin:{path:location.pathname+location.search},stockList:{filters,sortConfig}}} className="text-primary hover:underline" title={`Abrir ficha de ${item.companies.name}`}>{item.companies.name}</Link> : item.companies?.name || "Sin asignar"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {item.product_name}
+                          <RowActionsButton />{item.product_name}
                         </TableCell>
                         <TableCell className="font-bold whitespace-nowrap">
                           <span className={item.quantity < 0 ? "text-red-700" : undefined} title={item.quantity < 0 ? "Stock negativo: revisa el inventario" : undefined}>
@@ -450,24 +465,8 @@ export default function Stock() {
                             locale: es,
                           })}
                         </TableCell>
-                        <TableCell className="space-x-2 text-right whitespace-nowrap">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openEditDialog(item)}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-red-500 hover:text-red-600"
-                            onClick={() => handleDelete(item.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </TableCell>
                       </TableRow>
+                      </RowActions>
                     ))
                   )}
                 </TableBody>

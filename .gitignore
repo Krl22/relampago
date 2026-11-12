@@ -27,3 +27,11 @@ dist-ssr
 # Cloudflare / Wrangler
 .wrangler
 .dev.vars
+
+# Trabajo local (respaldos, datos de clientes, entregables generados, herramientas)
+work/
+tmp/
+output/
+outputs/
+.understand-anything/
+.claude/

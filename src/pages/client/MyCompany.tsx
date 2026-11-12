@@ -43,12 +43,12 @@ export default function MyCompany() {
     setPwMsg({ ok: true, text: "Contraseña actualizada." });
   };
 
-  if (loading) return <div className="py-10 text-center text-sm text-muted-foreground">Cargando…</div>;
-  if (!company) return <div className="py-10 text-center text-sm text-destructive">No se encontró tu comercio.</div>;
+  if (loading) return <div data-page="my-company" className="py-10 text-center text-sm text-muted-foreground">Cargando…</div>;
+  if (!company) return <div data-page="my-company" className="py-10 text-center text-sm text-destructive">No se encontró tu comercio.</div>;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Mi comercio</h1>
+    <div data-page="my-company" className="space-y-6">
+      <div data-page-header="true"><h1 className="text-3xl font-bold">Mi comercio</h1></div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

@@ -10,13 +10,15 @@ import {
   MapPinOff,
   Navigation,
   PackageOpen,
-  Phone,
+  MessageCircle,
   RefreshCw,
   Route as RouteIcon,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { Database } from "../types/database";
 import { useAuth } from "../components/AuthProvider";
+import { isReadyForRoute } from "../lib/fulfillment";
+import { DesignSwitch } from "../components/design/DesignSwitch";
 import { useCourierTracking } from "../components/CourierTrackingProvider";
 import { TrackingBadge } from "../components/TrackingBadge";
 import { OrderBadges } from "../components/OrderBadges";
@@ -32,6 +34,7 @@ import {
   type Stop,
 } from "../lib/routing";
 import { cn } from "@/lib/utils";
+import { whatsappHref } from "../lib/phone";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
   pickups: { pickup_number: number; status: string } | null;
@@ -115,9 +118,9 @@ export default function MyRoute() {
         .order("created_at", { ascending: true }),
       supabase
         .from("pickup_assignments")
-        .select("pickup_id, picked_up_at, pickups(*, companies(name))")
+        .select("pickup_id, picked_up_at, pickups!inner(*, companies(name))")
         .eq("courier_id", user.id)
-        .is("picked_up_at", null),
+        .in("pickups.status", ["pending", "assigned"]),
     ]).then(([ordersRes, pickupsRes]) => {
       if (cancelled) return;
       if (ordersRes.error) console.error("Error cargando pedidos:", ordersRes.error);
@@ -146,8 +149,10 @@ export default function MyRoute() {
   };
 
   const { ordered, withoutCoords } = useMemo(() => {
-    const withCoords = items.filter((it) => itemCoords(it));
-    const withoutCoords = items.filter((it) => !itemCoords(it));
+    // Keep uncollected deliveries out of navigation until their packages are received.
+    const readyItems = items.filter((it) => it.kind === "pickup" || isReadyForRoute(it.order));
+    const withCoords = readyItems.filter((it) => itemCoords(it));
+    const withoutCoords = readyItems.filter((it) => !itemCoords(it));
     const toStop = (it: RouteItem): Stop<RouteItem> => ({ ...itemCoords(it)!, data: it });
 
     // Orden: primero los recojos, luego lo que ya está en ruta, luego lo pendiente/recogido.
@@ -181,10 +186,12 @@ export default function MyRoute() {
   const fitPoints = useMemo<LatLng[]>(() => (origin ? [origin, ...ordered] : [...ordered]), [origin, ordered]);
   const fullRouteUrl = googleMapsMultiStopUrl(position ?? origin, ordered);
   const pickupsCount = items.filter((it) => it.kind === "pickup").length;
+  const warehousePending = items.filter((it) => it.kind === "order" && it.order.origin_type === "warehouse" && !isReadyForRoute(it.order)).length;
+  const addressPending = items.filter((it) => it.kind === "order" && it.order.origin_type === "pickup" && !isReadyForRoute(it.order)).length;
 
   return (
-    <div className="flex h-dvh flex-col bg-gray-100">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-3 shadow-sm">
+    <div data-page="route" className="flex h-dvh flex-col bg-gray-100">
+      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b bg-white px-3 py-2 shadow-sm">
         <Link to="/my-deliveries" className="rounded-md p-2 hover:bg-gray-100" aria-label="Volver">
           <ArrowLeft className="h-5 w-5" />
         </Link>
@@ -198,6 +205,7 @@ export default function MyRoute() {
           </div>
         </div>
         <TrackingBadge />
+        <DesignSwitch className="ml-auto" />
         <Button size="icon" variant="ghost" onClick={recalc} title="Recalcular desde mi posición">
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
@@ -252,6 +260,13 @@ export default function MyRoute() {
       </div>
 
       <div className="max-h-[45dvh] shrink-0 overflow-y-auto border-t bg-white">
+        {(warehousePending > 0 || addressPending > 0) && (
+          <div className="space-y-1 border-b bg-amber-50 p-3 text-sm text-amber-950">
+            {warehousePending > 0 && <p>{warehousePending} envío(s) por retirar del almacén. <Link className="font-medium underline" to="/my-deliveries">Confirmar retiro</Link></p>}
+            {addressPending > 0 && <p>{addressPending} envío(s) esperan su recojo en el comercio. <Link className="font-medium underline" to="/my-pickups">Ver recojos</Link></p>}
+            <p className="text-xs">Las entregas se agregan a la ruta cuando los paquetes están recogidos.</p>
+          </div>
+        )}
         {fullRouteUrl && (
           <div className="sticky top-0 z-10 border-b bg-white p-3">
             <Button asChild className="w-full">
@@ -298,15 +313,16 @@ export default function MyRoute() {
                       <OrderBadges order={{ ...it.order, pickup_number: it.order.pickups?.pickup_number ?? null }} compact className="mt-1" />
                     ) : (
                       <div className="mt-1 text-[11px] text-purple-800">
-                        {it.pickup.packages_count != null && `${it.pickup.packages_count} pqt`}
+                        {it.pickup.packages_count != null && `${it.pickup.packages_count} esperados`}
+                        {` · ${it.pickup.received_packages ?? 0} recibidos`}
                         {formatTimeWindow(it.pickup.pickup_after, it.pickup.pickup_before) && ` · ${formatTimeWindow(it.pickup.pickup_after, it.pickup.pickup_before)}`}
                         {it.pickup.contact_name && ` · ${it.pickup.contact_name}`}
                       </div>
                     )}
                   </div>
                   {phone && (
-                    <a href={`tel:${phone}`} className="rounded-md p-2 text-gray-600 hover:bg-gray-100" aria-label="Llamar">
-                      <Phone className="h-4 w-4" />
+                    <a href={whatsappHref(phone)} target="_blank" rel="noreferrer" className="rounded-md p-2 text-gray-600 hover:bg-gray-100" aria-label="Abrir chat de WhatsApp" title="Abrir chat de WhatsApp">
+                      <MessageCircle className="h-4 w-4" />
                     </a>
                   )}
                   <Button asChild size="sm">

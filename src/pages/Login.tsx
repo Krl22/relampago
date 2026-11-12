@@ -33,7 +33,7 @@ export default function Login() {
       });
 
       if (error) {
-        setError(error.message);
+        setError(error.code === "email_not_confirmed" ? "Verifica tu correo desde la invitación de Relámpago antes de iniciar sesión. Si el enlace venció, pide al administrador que lo reenvíe." : error.message);
       } else {
         navigate("/");
       }
@@ -61,7 +61,7 @@ export default function Login() {
   };
 
   return (
-    <div className="flex overflow-hidden relative justify-center items-center p-4 w-full h-screen bg-primary">
+    <div data-page="login" className="flex overflow-hidden relative justify-center items-center p-4 w-full h-screen bg-primary">
       {/* Decorative background elements */}
       <div className="overflow-hidden absolute top-0 left-0 w-full h-full pointer-events-none">
         <div className="absolute -top-[20%] -right-[10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-3xl"></div>

@@ -1,3 +1,4 @@
+import { RowActions, RowActionsButton, TableActionsHint } from "../components/RowActions";
 import { useEffect, useMemo, useState } from "react";
 import { addDays, format, parseISO, startOfWeek, subDays } from "date-fns";
 import { es } from "date-fns/locale";
@@ -196,15 +197,15 @@ export default function Settlements() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-page="settlements" className="space-y-6">
       {/* Controles (no se imprimen) */}
       <div className="space-y-4 print:hidden">
-        <h1 className="text-3xl font-bold">Liquidaciones</h1>
+        <div data-page-header="true"><h1 className="text-3xl font-bold">Liquidaciones</h1></div>
         <Card>
           <CardContent className="grid gap-4 p-4 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label>Comercio</Label>
-              <div className="flex gap-2">
+              <div className="settlement-company-picker flex gap-2">
                 <Input placeholder="Buscar…" value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} className="h-9 w-32" />
                 <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className={selectClass}>
                   <option value="">Seleccionar comercio…</option>
@@ -279,6 +280,7 @@ export default function Settlements() {
                 <CardTitle className="text-base">Liquidaciones anteriores de {company.name}</CardTitle>
               </CardHeader>
               <CardContent>
+                <div className="mb-3"><TableActionsHint /></div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -293,8 +295,12 @@ export default function Settlements() {
                   </TableHeader>
                   <TableBody>
                     {history.map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell className="font-mono text-xs">{s.settlement_number}</TableCell>
+                      <RowActions key={s.id} label={`Liquidación #${s.settlement_number}`} actions={[
+                        { label: "Ver período de la liquidación", icon: FileCheck2, onSelect: () => { setFrom(s.period_from); setTo(s.period_to); setOnlyUnsettled(false); } },
+                        { label: "Registrar pago", icon: Check, disabled: !!s.paid_at, onSelect: () => { void markPaid(s); } },
+                      ]}>
+                      <TableRow>
+                        <TableCell className="font-mono text-xs"><RowActionsButton />{s.settlement_number}</TableCell>
                         <TableCell className="text-xs">
                           {format(parseISO(s.period_from), "d MMM", {
                             locale: es,
@@ -317,12 +323,11 @@ export default function Settlements() {
                               {s.paid_reference && ` · ${s.paid_reference}`}
                             </span>
                           ) : (
-                            <Button size="sm" variant="outline" className="h-7" onClick={() => void markPaid(s)}>
-                              Marcar pagado
-                            </Button>
+                            <span className="text-xs text-muted-foreground">Pendiente</span>
                           )}
                         </TableCell>
                       </TableRow>
+                      </RowActions>
                     ))}
                   </TableBody>
                 </Table>

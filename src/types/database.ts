@@ -732,6 +732,7 @@ export type Database = {
       pickups: {
         Row: {
           address: string
+          auto_generated: boolean
           company_address_id: string | null
           company_id: string | null
           contact_name: string | null
@@ -748,12 +749,14 @@ export type Database = {
           pickup_after: string | null
           pickup_before: string | null
           pickup_number: number
+          received_packages: number
           scheduled_date: string
           status: Database["public"]["Enums"]["pickup_status"]
           updated_at: string
         }
         Insert: {
           address: string
+          auto_generated?: boolean
           company_address_id?: string | null
           company_id?: string | null
           contact_name?: string | null
@@ -770,12 +773,14 @@ export type Database = {
           pickup_after?: string | null
           pickup_before?: string | null
           pickup_number?: never
+          received_packages?: number
           scheduled_date?: string
           status?: Database["public"]["Enums"]["pickup_status"]
           updated_at?: string
         }
         Update: {
           address?: string
+          auto_generated?: boolean
           company_address_id?: string | null
           company_id?: string | null
           contact_name?: string | null
@@ -792,6 +797,7 @@ export type Database = {
           pickup_after?: string | null
           pickup_before?: string | null
           pickup_number?: never
+          received_packages?: number
           scheduled_date?: string
           status?: Database["public"]["Enums"]["pickup_status"]
           updated_at?: string
@@ -1083,6 +1089,8 @@ export type Database = {
       }
     }
     Functions: {
+      admin_export_orders: { Args: { p_ids?: string[] | null }; Returns: Json }
+      admin_delete_orders: { Args: { p_ids: string[] }; Returns: string[] }
       canonical_district: { Args: { p: string }; Returns: string }
       company_activity: {
         Args: never

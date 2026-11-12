@@ -26,7 +26,7 @@ export function getImpersonation(): Impersonation | null {
 
 const homeFor = (role: UserRole) => (role === "courier" ? "/my-deliveries" : role === "client" ? "/mis-pedidos" : "/");
 
-export async function startImpersonation(target: { id: string; name: string | null }, adminName: string | null) {
+export async function startImpersonation(target: { id: string; name: string | null; companyId?: string }, adminName: string | null) {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -34,6 +34,7 @@ export async function startImpersonation(target: { id: string; name: string | nu
   const res = await callAdminUsers<{ token_hash: string; log_id: string | null; role: UserRole; full_name: string | null }>({
     action: "impersonate",
     user_id: target.id,
+    ...(target.companyId ? { company_id: target.companyId } : {}),
   });
   const info: Impersonation = {
     admin: { access_token: session.access_token, refresh_token: session.refresh_token, name: adminName },

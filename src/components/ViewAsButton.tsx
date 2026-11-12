@@ -13,7 +13,7 @@ export function ViewAsButton({
   className,
   compact = false,
 }: {
-  target: { id: string; full_name: string | null; role: UserRole };
+  target: { id: string; full_name: string | null; role: UserRole; company_id?: string };
   className?: string;
   compact?: boolean;
 }) {
@@ -31,7 +31,7 @@ export function ViewAsButton({
       return;
     setBusy(true);
     try {
-      await startImpersonation({ id: target.id, name: target.full_name }, profile.full_name);
+      await startImpersonation({ id: target.id, name: target.full_name, companyId: target.company_id }, profile.full_name);
     } catch (e) {
       alert("No se pudo entrar: " + (e as Error).message);
       setBusy(false);
