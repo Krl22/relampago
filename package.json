@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --test scripts/tests/*.test.mjs",
     "preview": "vite preview",
     "icons": "node scripts/generate-icons.mjs",
     "deploy": "npm run build && wrangler deploy",

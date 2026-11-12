@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import postcss from "postcss";
 import ts from "typescript";
 import { navigationFor } from "../../src/components/design/navigation.ts";
@@ -146,7 +146,12 @@ function routeManifest(path) {
   visit(ast);
   return manifest;
 }
-test("All route paths and their authentication/role guards match the pre-redesign application", () => {
+// El respaldo previo al rediseño vive solo en la máquina local (work/ no se sube a GitHub):
+// en CI (Cloudflare) estas dos comparaciones se omiten.
+const CHECKPOINT = "work/checkpoints/lightning-app-2026-11-06";
+const noCheckpoint = existsSync(CHECKPOINT) ? false : "sin respaldo local en work/checkpoints";
+
+test("All route paths and their authentication/role guards match the pre-redesign application", { skip: noCheckpoint }, () => {
   const routes = routeManifest("src/App.tsx");
   const record = routes.filter(
     (route) => route.path === "/comercios/:companyId",
@@ -161,7 +166,7 @@ test("All route paths and their authentication/role guards match the pre-redesig
     routeManifest("work/checkpoints/lightning-app-2026-11-06/src/App.tsx"),
   );
 });
-test("The redesign leaves every existing page database/API query unchanged", () => {
+test("The redesign leaves every existing page database/API query unchanged", { skip: noCheckpoint }, () => {
   const pages = [
     "Dashboard",
     "Orders",
