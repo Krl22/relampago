@@ -2,11 +2,11 @@ import type { OrderStatus, OriginType, PickupStatus, ServiceType } from "../type
 
 /** Etiquetas y colores de estado de pedido (Tailwind). */
 export const STATUS_META: Record<OrderStatus, { label: string; badge: string; dot: string }> = {
-  pending: { label: "Pendiente", badge: "bg-yellow-100 text-yellow-800", dot: "bg-yellow-500" },
-  picked_up: { label: "Recogido", badge: "bg-purple-100 text-purple-800", dot: "bg-purple-500" },
+  pending: { label: "Registrado", badge: "bg-yellow-100 text-yellow-800", dot: "bg-yellow-500" },
+  picked_up: { label: "Pendiente", badge: "bg-purple-100 text-purple-800", dot: "bg-purple-500" },
   in_transit: { label: "En ruta", badge: "bg-blue-100 text-blue-800", dot: "bg-blue-500" },
   delivered: { label: "Entregado", badge: "bg-green-100 text-green-800", dot: "bg-green-500" },
-  failed: { label: "No entregado", badge: "bg-red-100 text-red-800", dot: "bg-red-500" },
+  failed: { label: "Rechazado", badge: "bg-red-100 text-red-800", dot: "bg-red-500" },
   cancelled: { label: "Anulado", badge: "bg-gray-200 text-gray-700", dot: "bg-gray-400" },
 };
 export const ORDER_STATUSES = Object.keys(STATUS_META) as OrderStatus[];

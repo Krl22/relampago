@@ -36,7 +36,7 @@ import {
 import { PRESENCE, courierMarkerIcon, deliveryMarkerIcon, googleMapsUrl, trailColorFor } from "../lib/mapIcons";
 import { isStaffRole } from "../lib/profiles";
 import { formatKm } from "../lib/routing";
-import { ACTIVE_STATUSES } from "../lib/orderMeta";
+import { ACTIVE_STATUSES, STATUS_META } from "../lib/orderMeta";
 import { cn } from "@/lib/utils";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -508,7 +508,7 @@ export default function CourierMap() {
                         <div className="font-bold">{o.recipient_name}</div>
                         <div className="text-xs text-gray-600">{o.destination_address}</div>
                         <div className="text-xs text-gray-500">
-                          {o.status === "in_transit" ? "En ruta" : "Pendiente"} · {o.assigned_courier ? courierName(o.assigned_courier) : "sin asignar"}
+                          {STATUS_META[o.status].label} · {o.assigned_courier ? courierName(o.assigned_courier) : "sin asignar"}
                         </div>
                         <a className="inline-flex items-center gap-1 text-xs text-blue-700 underline" href={googleMapsUrl(o.destination_lat!, o.destination_lng!)} target="_blank" rel="noreferrer">
                           <ExternalLink className="h-3 w-3" /> Abrir en Google Maps

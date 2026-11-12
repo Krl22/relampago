@@ -23,7 +23,7 @@ export const columns:Record<ReportArgs['dataset'],Column[]>={
     {key:'order_number',label:'Pedido',width:12,type:'integer'},{key:'event_type',label:'Acción',width:23,type:'event'},
     {key:'from_status',label:'Estado anterior',width:20,type:'status'},{key:'to_status',label:'Estado nuevo',width:20,type:'status'}],
 };
-const statuses:Record<string,string>={pending:'Pendiente',picked_up:'Recogido',in_transit:'En ruta',delivered:'Entregado',failed:'No entregado',cancelled:'Anulado'};
+const statuses:Record<string,string>={pending:'Registrado',picked_up:'Pendiente',in_transit:'En ruta',delivered:'Entregado',failed:'Rechazado',cancelled:'Anulado'};
 const events:Record<string,string>={created:'Creación',status_change:'Cambio de estado',assigned:'Asignación'};
 export const limaDate=(value:string)=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',dateStyle:'short',timeStyle:'short'}).format(new Date(value));
 export function displayCell(value:string|number|null|undefined,column:Column):string{

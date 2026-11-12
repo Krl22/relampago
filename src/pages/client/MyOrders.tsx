@@ -223,7 +223,7 @@ export default function MyOrders() {
       {counts && (
         <div className="grid grid-cols-3 gap-3">
           <Summary
-            label="Pendientes"
+            label="Registrados"
             value={counts.pending}
             className="text-yellow-700"
           />

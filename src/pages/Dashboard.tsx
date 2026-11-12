@@ -176,7 +176,7 @@ export default function Dashboard() {
           ).length;
 
           setChartData([
-            { name: "Pendiente", value: pending, color: "#f97316" },
+            { name: "Registrado", value: pending, color: "#f97316" },
             { name: "En Ruta", value: in_transit, color: "#3b82f6" },
             { name: "Entregado", value: totalDelivered, color: "#22c55e" },
           ]);
@@ -238,7 +238,7 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="flex flex-row justify-between items-center pb-2 space-y-0">
               <CardTitle className="text-sm font-medium">
-                Envíos Pendientes
+                Envíos por entregar
               </CardTitle>
               <Truck className="w-4 h-4 text-muted-foreground" />
             </CardHeader>
@@ -346,7 +346,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row justify-between items-center pb-2 space-y-0">
             <CardTitle className="text-sm font-medium">
-              Pedidos Pendientes
+              Pedidos Registrados
             </CardTitle>
             <Clock className="w-4 h-4 text-orange-500" />
           </CardHeader>
