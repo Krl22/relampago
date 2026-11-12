@@ -7,48 +7,49 @@ import { Button } from "../components/ui/button";
 import {
   Truck,
   MapPin,
-  Phone,
+  MessageCircle,
   User,
   Camera,
   Check,
   Image as ImageIcon,
   Sun,
   Route as RouteIcon,
-  PackageOpen,
   ExternalLink,
-  Clock,
   XCircle,
-  Package,
+  PackageCheck,
+  History,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../components/AuthProvider";
 import { useCourierTracking } from "../components/CourierTrackingProvider";
 import { LocationPermissionCard } from "../components/LocationPermissionCard";
+import { OrderHistory } from "../components/OrderHistory";
 import { OrderBadges, StatusBadge } from "../components/OrderBadges";
 import { useWakeLock } from "../hooks/useWakeLock";
-import { ACTIVE_STATUSES, STATUS_META, districtName, formatTimeWindow } from "../lib/orderMeta";
+import { ACTIVE_STATUSES, STATUS_META, districtName } from "../lib/orderMeta";
 import { googleMapsUrl } from "../lib/mapIcons";
+import { whatsappHref } from "../lib/phone";
 import { cn } from "@/lib/utils";
+import { computeFee, TARIFF_AMOUNTS, TARIFF_CODES } from "../lib/tariff";
+import { isReadyForRoute } from "../lib/fulfillment";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
   pickups: { pickup_number: number; status: string } | null;
+  companies: { invoice_igv: boolean; t1_rate: number | null } | null;
 };
-type Pickup = Database["public"]["Tables"]["pickups"]["Row"] & {
-  companies: { name: string } | null;
-  orders: { id: string; recipient_name: string | null; destination_district: string | null }[];
-};
-type Assignment = Database["public"]["Tables"]["pickup_assignments"]["Row"] & { pickups: Pickup | null };
 
 export default function MyDeliveries() {
   const { user } = useAuth();
   const { flush } = useCourierTracking();
   const wakeLock = useWakeLock();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [collect, setCollect] = useState({ amount: "", method: "" });
+  const [tariffError, setTariffError] = useState<{ id: string; message: string } | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const openConfirm = (order: Order) => {
     setCollect({
@@ -63,28 +64,15 @@ export default function MyDeliveries() {
   const load = useCallback(async () => {
     if (!user) return;
     try {
-      const [ordersRes, pickupsRes] = await Promise.all([
-        supabase
+      const ordersRes = await supabase
           .from("orders")
-          .select("*, pickups(pickup_number, status)")
+          .select("*, pickups(pickup_number, status), companies(invoice_igv, t1_rate)")
           .eq("assigned_courier", user.id)
           .in("status", ACTIVE_STATUSES)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("pickup_assignments")
-          .select("*, pickups(*, companies(name), orders(id, recipient_name, destination_district))")
-          .eq("courier_id", user.id)
-          .is("picked_up_at", null)
-          .order("assigned_at", { ascending: true }),
-      ]);
+          .order("created_at", { ascending: true });
       if (ordersRes.error) throw ordersRes.error;
-      if (pickupsRes.error) throw pickupsRes.error;
       setOrders((ordersRes.data ?? []) as Order[]);
-      setAssignments(
-        ((pickupsRes.data ?? []) as Assignment[]).filter(
-          (a) => a.pickups && !["failed", "cancelled", "picked_up"].includes(a.pickups.status),
-        ),
-      );
+      setHistoryVersion((n) => n + 1);
     } catch (error) {
       console.error("Error cargando envíos:", error);
     } finally {
@@ -96,15 +84,25 @@ export default function MyDeliveries() {
     void load();
   }, [load]);
 
-  const setOrderStatus = async (orderId: string, status: "in_transit" | "failed", notes?: string) => {
-    setBusyId(orderId);
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
+  const setOrderStatus = async (order: Order, status: "picked_up" | "in_transit" | "failed", notes?: string) => {
+    if (!user || busyId) return;
+    setBusyId(order.id);
     try {
       await flush(); // la coordenada del momento queda en order_events
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("orders")
         .update(notes ? { status, delivery_notes: notes } : { status })
-        .eq("id", orderId);
+        .eq("id", order.id).eq("assigned_courier", user.id).eq("status", order.status)
+        .select("id").single();
       if (error) throw error;
+      if (!data) throw new Error("El pedido cambió o ya no está asignado a ti. Actualiza la página.");
       await load();
     } catch (error) {
       console.error("Error actualizando estado:", error);
@@ -117,26 +115,13 @@ export default function MyDeliveries() {
   const markFailed = (order: Order) => {
     const reason = window.prompt("¿Por qué no se pudo entregar? (nadie recibe, dirección errada, etc.)");
     if (reason === null) return;
-    void setOrderStatus(order.id, "failed", reason.trim() || "No se pudo entregar");
+    void setOrderStatus(order, "failed", reason.trim() || "No se pudo entregar");
   };
 
-  const markPickedUp = async (a: Assignment) => {
-    if (!user) return;
-    setBusyId(a.pickup_id);
-    try {
-      await flush();
-      const { error } = await supabase
-        .from("pickup_assignments")
-        .update({ picked_up_at: new Date().toISOString() })
-        .eq("pickup_id", a.pickup_id)
-        .eq("courier_id", user.id);
-      if (error) throw error;
-      await load();
-    } catch (error) {
-      console.error("Error marcando recojo:", error);
-      alert("No se pudo marcar el recojo: " + (error as Error).message);
-    } finally {
-      setBusyId(null);
+  const confirmWarehouseWithdrawal = (order: Order) => {
+    const count = order.packages_count ?? 1;
+    if (window.confirm(`¿Ya recibiste los ${count} paquete(s) del pedido #${order.order_number} en el almacén de Relámpago?\n\nConfirma solo después de revisar los paquetes. El retiro quedará registrado a tu nombre.`)) {
+      void setOrderStatus(order, "picked_up");
     }
   };
 
@@ -195,9 +180,37 @@ export default function MyDeliveries() {
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, payment_method: method } : o)));
   };
 
+  const handleTariffChange = async (order: Order, tariff: string) => {
+    if (!user || busyId || !TARIFF_CODES.includes(tariff)) return;
+    setTariffError(null);
+    if (order.company_id && !order.companies) {
+      setTariffError({ id: order.id, message: "No se pudo leer la tarifa pactada del comercio. Recarga antes de cambiar la tarifa." });
+      return;
+    }
+    const total = computeFee({
+      tariff, surcharge: order.surcharge, company: order.companies,
+      paymentMethod: order.payment_method,
+      amountCollected: order.amount_collected ?? order.amount_to_collect ?? 0,
+    });
+    if (total == null) return;
+    setBusyId(order.id);
+    try {
+      const { data, error } = await supabase.from("orders")
+        .update({ tariff, total_amount: total })
+        .eq("id", order.id).eq("assigned_courier", user.id).in("status", ACTIVE_STATUSES)
+        .select("tariff, total_amount").single();
+      if (error || !data) throw error ?? new Error("El pedido ya no está activo o asignado a ti.");
+      setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, ...data } : o));
+    } catch (error) {
+      setTariffError({ id: order.id, message: "No se pudo guardar la tarifa: " + (error as Error).message });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-md space-y-6">
-      <div className="flex items-center justify-between gap-2">
+    <div data-page="deliveries" className="mx-auto max-w-md space-y-6">
+      <div data-page-header="true" className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Mis Envíos</h1>
         {wakeLock.supported && (
           <Button
@@ -215,115 +228,61 @@ export default function MyDeliveries() {
 
       <LocationPermissionCard />
 
-      {(orders.length > 0 || assignments.length > 0) && (
-        <Button asChild variant="outline" className="w-full">
-          <Link to="/mi-ruta">
-            <RouteIcon className="mr-2 h-4 w-4" /> Ver mi ruta en el mapa
-          </Link>
-        </Button>
+      {orders.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          <Button asChild variant="outline" className="w-full">
+            <Link to="/mi-ruta">
+              <RouteIcon className="mr-2 h-4 w-4" /> Mi ruta
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <a href="#order-history">
+              <History className="mr-2 h-4 w-4" /> Historial
+            </a>
+          </Button>
+        </div>
       )}
 
       {loading ? (
-        <div className="text-center">Cargando...</div>
+        <div role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+          <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> Cargando tus envíos…
+        </div>
       ) : (
         <>
-          {/* Recojos */}
-          {assignments.length > 0 && (
-            <section className="space-y-3">
-              <h2 className="flex items-center gap-2 text-lg font-semibold">
-                <PackageOpen className="h-5 w-5 text-purple-600" /> Recojos ({assignments.length})
-              </h2>
-              {assignments.map((a) => {
-                const p = a.pickups!;
-                const window = formatTimeWindow(p.pickup_after, p.pickup_before);
-                return (
-                  <Card key={a.pickup_id} className="overflow-hidden">
-                    <div className="h-2 w-full bg-purple-500" />
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-lg">
-                          Recojo #{p.pickup_number} · {p.companies?.name ?? "—"}
-                        </CardTitle>
-                        {p.packages_count != null && (
-                          <span className="shrink-0 rounded-full bg-purple-100 px-2 py-1 text-xs font-bold text-purple-800">
-                            {p.packages_count} pqt
-                          </span>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div className="flex items-start gap-2">
-                        <MapPin className="mt-0.5 h-4 w-4 text-gray-500" />
-                        <span>
-                          {p.address}
-                          {p.district ? ` · ${districtName(p.district)}` : ""}
-                          {p.lat != null && p.lng != null && (
-                            <a
-                              href={googleMapsUrl(p.lat, p.lng)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="ml-2 inline-flex items-center gap-1 text-blue-600 underline"
-                            >
-                              <ExternalLink className="h-3 w-3" /> mapa
-                            </a>
-                          )}
-                        </span>
-                      </div>
-                      {(p.contact_name || p.contact_phone) && (
-                        <div className="flex items-start gap-2">
-                          <User className="mt-0.5 h-4 w-4 text-gray-500" />
-                          <span>
-                            {p.contact_name}
-                            {p.contact_phone && (
-                              <a href={`tel:${p.contact_phone}`} className="ml-2 text-blue-600 underline">
-                                {p.contact_phone}
-                              </a>
-                            )}
-                          </span>
-                        </div>
-                      )}
-                      {window && (
-                        <div className="flex items-center gap-2 text-amber-800">
-                          <Clock className="h-4 w-4" /> {window}
-                        </div>
-                      )}
-                      {p.notes && <p className="rounded bg-gray-50 p-2 text-xs text-gray-700">{p.notes}</p>}
-                      {p.orders.length > 0 && (
-                        <div className="flex items-start gap-2 text-xs text-gray-600">
-                          <Package className="mt-0.5 h-4 w-4 shrink-0" />
-                          <span>
-                            {p.orders.length} pedido{p.orders.length === 1 ? "" : "s"}:{" "}
-                            {p.orders.map((o) => `${o.recipient_name ?? "—"} (${districtName(o.destination_district)})`).join(", ")}
-                          </span>
-                        </div>
-                      )}
-                    </CardContent>
-                    <CardFooter className="bg-gray-50 p-4">
-                      <Button
-                        className="w-full bg-purple-600 hover:bg-purple-700"
-                        onClick={() => void markPickedUp(a)}
-                        disabled={busyId === a.pickup_id}
-                      >
-                        <Check className="mr-2 h-4 w-4" /> Marcar recogido
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                );
-              })}
-            </section>
-          )}
-
           {/* Entregas */}
           <section className="space-y-3">
-            {assignments.length > 0 && (
-              <h2 className="flex items-center gap-2 text-lg font-semibold">
-                <Truck className="h-5 w-5 text-blue-600" /> Entregas ({orders.length})
-              </h2>
-            )}
             {orders.length === 0 ? (
-              <div className="py-10 text-center text-gray-500">
-                <Truck className="mx-auto mb-4 h-12 w-12 opacity-50" />
-                <p>No tienes envíos pendientes.</p>
+              <div className="rounded-xl border border-dashed bg-card px-6 py-9 text-center">
+                <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Truck className="h-8 w-8" aria-hidden="true" />
+                </span>
+                <h2 className="text-lg font-semibold">Todo al día</h2>
+                <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">
+                  No tienes envíos pendientes. Cuando Relámpago te asigne pedidos, aparecerán aquí.
+                </p>
+                <Button variant="outline" size="sm" className="mt-5" onClick={() => void refresh()} disabled={refreshing}>
+                  <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} aria-hidden="true" />
+                  {refreshing ? "Buscando…" : "Buscar envíos nuevos"}
+                </Button>
+                <details className="group mx-auto mt-6 max-w-xs border-t pt-4 text-left text-sm">
+                  <summary className="cursor-pointer list-none text-center font-medium text-primary [&::-webkit-details-marker]:hidden">
+                    ¿Cómo funciona?
+                  </summary>
+                  <ol className="mt-3 space-y-2.5">
+                    {[
+                      "Relámpago te asigna pedidos y te llegan a esta pantalla.",
+                      "En «Mi ruta» ves tus paradas en el mapa.",
+                      "Al entregar, tomas la foto y registras el cobro.",
+                    ].map((step, i) => (
+                      <li key={step} className="flex gap-3 text-muted-foreground">
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {i + 1}
+                        </span>
+                        <span className="pt-0.5">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
               </div>
             ) : (
               orders.map((order) => (
@@ -359,24 +318,43 @@ export default function MyDeliveries() {
                       </span>
                     </div>
                     <div className="flex items-start gap-2">
-                      <Phone className="mt-0.5 h-4 w-4 text-gray-500" />
-                      <a href={`tel:${order.recipient_phone}`} className="text-blue-600 underline">
+                      <MessageCircle className="mt-0.5 h-4 w-4 text-gray-500" />
+                      <a href={whatsappHref(order.recipient_phone)} target="_blank" rel="noreferrer" title="Abrir chat de WhatsApp" className="text-blue-600 underline">
                         {order.recipient_phone}
                       </a>
                     </div>
                     {order.product_details && <p className="text-xs text-gray-600">{order.product_details}</p>}
                     {order.comments && <p className="rounded bg-gray-50 p-2 text-xs text-gray-700">{order.comments}</p>}
-                    {order.origin_type === "pickup" && order.status === "pending" && (
+                    {order.origin_type === "warehouse" && order.status === "pending" && (
+                      <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">
+                        Primero retira {order.packages_count ?? 1} paquete(s) del almacén de Relámpago. Después podrás iniciar la ruta de entrega.
+                      </p>
+                    )}
+                    {order.origin_type === "pickup" && order.status === "pending" && !isReadyForRoute(order) && (
                       <p className="rounded bg-purple-50 p-2 text-xs text-purple-800">
-                        Este paquete aún no se ha recogido (recojo #{order.pickups?.pickup_number}).
+                        Primero completa el recojo{order.pickups ? ` #${order.pickups.pickup_number}` : " del comercio"} en «Mis recojos».
                       </p>
                     )}
 
-                    <div className="mt-2 border-t pt-2">
+                    <div className="mt-2 border-t pt-2 space-y-2">
+                      <div>
+                        <label htmlFor={`tariff-${order.id}`} className="mb-1 block text-xs font-medium text-gray-500">Tarifa</label>
+                        <select id={`tariff-${order.id}`} className="w-full rounded border bg-white p-1 text-sm"
+                          value={order.tariff ?? ""} disabled={!!busyId || uploading}
+                          onChange={(e) => void handleTariffChange(order, e.target.value)}>
+                          <option value="" disabled>Seleccionar tarifa...</option>
+                          {TARIFF_CODES.map((code) => <option key={code} value={code}>{code} · S/ {TARIFF_AMOUNTS[code].toFixed(2)} base</option>)}
+                        </select>
+                        <p className="mt-1 text-xs text-gray-500" role="status">
+                          {busyId === order.id ? "Guardando…" : `Monto del servicio: ${order.total_amount == null ? "sin tarifa" : `S/ ${Number(order.total_amount).toFixed(2)}`}`}
+                        </p>
+                        {tariffError?.id === order.id && <p role="alert" className="mt-1 text-xs text-red-600">{tariffError.message}</p>}
+                      </div>
                       <label className="mb-1 block text-xs font-medium text-gray-500">Método de Pago</label>
                       <select
                         className="w-full rounded border bg-white p-1 text-sm"
                         value={order.payment_method || ""}
+                        disabled={!!busyId || uploading}
                         onChange={(e) => handlePaymentMethodChange(order.id, e.target.value)}
                       >
                         <option value="">Seleccionar...</option>
@@ -388,8 +366,16 @@ export default function MyDeliveries() {
                     </div>
                   </CardContent>
                   <CardFooter className="flex gap-2 bg-gray-50 p-4">
-                    {(order.status === "pending" || order.status === "picked_up") && (
-                      <Button className="w-full" onClick={() => void setOrderStatus(order.id, "in_transit")} disabled={busyId === order.id}>
+                    {order.status === "pending" && order.origin_type === "warehouse" && (
+                      <Button className="w-full" onClick={() => confirmWarehouseWithdrawal(order)} disabled={!!busyId}>
+                        <PackageCheck className="mr-2 h-4 w-4" /> Confirmar retiro del almacén
+                      </Button>
+                    )}
+                    {order.status === "pending" && order.origin_type === "pickup" && !isReadyForRoute(order) && (
+                      <Button asChild variant="outline" className="w-full"><Link to="/my-pickups">Ir a mis recojos</Link></Button>
+                    )}
+                    {order.status !== "in_transit" && isReadyForRoute(order) && (
+                      <Button className="w-full" onClick={() => void setOrderStatus(order, "in_transit")} disabled={!!busyId}>
                         <Truck className="mr-2 h-4 w-4" /> Iniciar Ruta
                       </Button>
                     )}
@@ -416,6 +402,8 @@ export default function MyDeliveries() {
           </section>
         </>
       )}
+
+      {user && <OrderHistory courierId={user.id} refreshToken={historyVersion} />}
 
       {selectedOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
