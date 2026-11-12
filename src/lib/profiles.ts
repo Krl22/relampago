@@ -15,7 +15,7 @@ export function isStaffRole(profile: ProfileLike | null | undefined): boolean {
 /** Nombre del rol tal como se muestra en la app. */
 export const ROLE_LABELS: Record<Database["public"]["Enums"]["user_role"], string> = {
   admin: "Administrador",
-  staff: "Staff",
+  staff: "Supervisor",
   courier: "Motorizado",
   client: "Comercio",
 };

@@ -94,6 +94,7 @@ type Activity = { accounts: number; orders_30d: number; last_order_at: string | 
 export default function Companies() {
   const { mode } = useDesign();
   const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const navigate = useNavigate();
   const location = useLocation();
   const savedList = savedCompanyList(location.state);
@@ -615,9 +616,9 @@ export default function Companies() {
                         ...(profile?.role === "admin" && !getImpersonation() ? [{ label: "Ver como", icon: Eye, onSelect: () => setViewAsFor(company) }] : []),
                         { label: "Editar comercio", icon: Edit, onSelect: () => { setEditingCompany(company); setIsDialogOpen(true); } },
                         { label: "Direcciones de recojo", icon: MapPin, onSelect: () => setAddressesFor(company) },
-                        { label: "Accesos al portal", icon: KeyRound, onSelect: () => setAccessFor(company) },
+                        ...(isAdmin ? [{ label: "Accesos al portal", icon: KeyRound, onSelect: () => setAccessFor(company) }] : []),
                         { label: "Ver inventario", icon: Boxes, onSelect: () => navigate(`/stock?company=${company.id}`) },
-                        { label: "Eliminar comercio", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(company.id); } },
+                        ...(isAdmin ? [{ label: "Eliminar comercio", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(company.id); } }] : []),
                       ]}>
                       <TableRow>
                         <TableCell className="font-medium whitespace-nowrap">
@@ -903,14 +904,14 @@ export default function Companies() {
             <h3 className="text-sm font-semibold">Tarifa y facturación</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 items-center rounded-lg border p-4">
               <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox checked={!!invoiceIgv} onCheckedChange={(v) => setValue("invoice_igv", !!v)} />
+                <Checkbox checked={!!invoiceIgv} disabled={!isAdmin} onCheckedChange={(v) => setValue("invoice_igv", !!v)} />
                 Factura con IGV (tarifa × 1.18)
               </label>
               <div className="space-y-2">
                 <Label htmlFor="t1_rate">Tarifa T1 pactada (S/.)</Label>
-                <Input id="t1_rate" type="number" step="0.5" min="0" {...register("t1_rate")} placeholder="Vacío = 10" />
+                <Input id="t1_rate" type="number" step="0.5" min="0" {...register("t1_rate")} placeholder="Vacío = 10" disabled={!isAdmin} />
               </div>
-              <p className="sm:col-span-2 text-xs text-muted-foreground">La prioridad se activa automáticamente al registrar inventario para este comercio.</p>
+              <p className="sm:col-span-2 text-xs text-muted-foreground">La prioridad se activa automáticamente al registrar inventario para este comercio.{!isAdmin && " Las condiciones de tarifa solo las cambia un administrador."}</p>
             </div>
 
             </div>

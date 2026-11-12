@@ -67,6 +67,7 @@ export default function Couriers() {
   const navigate = useNavigate();
   const memory = savedList(location.state, "courierList", {name:"",date:""});
   const { profile, user } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const [couriers, setCouriers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -258,12 +259,14 @@ export default function Couriers() {
       <div data-page-header="true" className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-bold">Motorizados</h1>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 w-4 h-4" />
-              Nuevo Motorizado
-            </Button>
-          </DialogTrigger>
+          {isAdmin && (
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 w-4 h-4" />
+                Nuevo Motorizado
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Registrar cuenta de motorizado</DialogTitle>
@@ -413,12 +416,12 @@ export default function Couriers() {
                     filteredAndSortedCouriers.map((courier) => (
                       <RowActions key={courier.id} label={courier.full_name || "Motorizado"} actions={[
                         ...(profile?.role === "admin" && mode === "lightning" ? [{label:"Abrir ficha del motorizado",icon:FileText,onSelect:()=>navigate(`/couriers/${courier.id}`,{state:{courierList:{filters,sortConfig}}})}] : []),
-                        { label: "Editar motorizado", icon: Edit, onSelect: () => { setEditingCourier(courier); setEditName(courier.full_name || ""); setIsEditDialogOpen(true); } },
+                        ...(isAdmin ? [{ label: "Editar motorizado", icon: Edit, onSelect: () => { setEditingCourier(courier); setEditName(courier.full_name || ""); setIsEditDialogOpen(true); } }] : []),
                         ...(profile?.role === "admin" && courier.id !== user?.id && !getImpersonation() ? [{ label: "Ver como motorizado", icon: Eye, onSelect: () => {
                           if (!globalThis.confirm(`Vas a entrar como ${courier.full_name || "este motorizado"}. Las acciones son reales y quedan registradas. Usa Volver a mi cuenta para salir.`)) return;
                           void startImpersonation({ id: courier.id, name: courier.full_name }, profile.full_name).catch((error: Error) => alert(error.message));
                         } }] : []),
-                        { label: "Eliminar motorizado", icon: Trash2, destructive: true, onSelect: () => { void handleDeleteCourier(courier.id); } },
+                        ...(isAdmin ? [{ label: "Eliminar motorizado", icon: Trash2, destructive: true, onSelect: () => { void handleDeleteCourier(courier.id); } }] : []),
                       ]}>
                       <TableRow>
                         <TableCell className="font-medium"><RowActionsButton />{profile?.role === "admin" && mode === "lightning" ? <Link to={`/couriers/${courier.id}`} state={{courierList:{filters,sortConfig}}} className="text-primary hover:underline" title={`Abrir ficha de ${courier.full_name || "motorizado"}`}>{courier.full_name || "Sin nombre"}</Link> : courier.full_name || "Sin nombre"}</TableCell>

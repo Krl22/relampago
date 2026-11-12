@@ -714,7 +714,7 @@ export default function Orders() {
                           disabled: order.status === "cancelled" || (order.status === "delivered" && !!proof),
                           onSelect: () => setDeliverTarget(order),
                         },
-                        { label: "Eliminar pedido", icon: Trash2, destructive: true, onSelect: () => setDeleteTarget(order) },
+                        ...(isAdmin ? [{ label: "Eliminar pedido", icon: Trash2, destructive: true, onSelect: () => setDeleteTarget(order) }] : []),
                       ]}>
                       <tr className={cn("group border-b hover:bg-muted/30", savingId === order.id && "opacity-60", selectedOrders.includes(order.id) && "bg-primary/5")}>
                         <td className="sticky left-0 z-10 w-10 bg-background px-1 py-1 group-hover:bg-muted"><RowActionsButton /></td>

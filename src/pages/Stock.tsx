@@ -438,7 +438,7 @@ export default function Stock() {
                     filteredAndSortedStock.map((item) => (
                       <RowActions key={item.id} label={item.product_name} actions={[
                         { label: "Editar producto", icon: Edit, onSelect: () => openEditDialog(item) },
-                        { label: "Eliminar producto", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(item.id); } },
+                        ...(profile?.role === "admin" ? [{ label: "Eliminar producto", icon: Trash2, destructive: true, onSelect: () => { void handleDelete(item.id); } }] : []),
                       ]}>
                       <TableRow>
                         <TableCell className="font-medium text-blue-600 whitespace-nowrap">

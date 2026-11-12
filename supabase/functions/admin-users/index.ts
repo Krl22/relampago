@@ -91,6 +91,11 @@ Deno.serve(async (req) => {
     if (body.action !== "impersonate_end" && (!callerProfile || !["admin", "staff"].includes(callerProfile.role))) {
       return json(403, { error: "Solo admin o staff pueden gestionar accesos" });
     }
+    // El supervisor (staff) solo consulta accesos; crear, vincular, resetear o eliminar cuentas es de admin
+    const READ_ONLY_ACTIONS = ["list", "search", "impersonate_end"];
+    if (callerProfile?.role !== "admin" && !READ_ONLY_ACTIONS.includes(body.action)) {
+      return json(403, { error: "Solo un administrador puede crear o modificar cuentas" });
+    }
 
     // A secondary courier login is a separate Auth identity, never an upgrade of an existing account.
     if (body.action === "create_courier") {

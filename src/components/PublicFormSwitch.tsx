@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
  * tienen su cuenta: desde ahí solo se pide iniciando sesión en el portal.
  */
 export function PublicFormSwitch() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const [open, setOpen] = useState<boolean | null>(null);
   const [pendingAccounts, setPendingAccounts] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -66,7 +67,7 @@ export function PublicFormSwitch() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant={open ? "outline" : "default"} onClick={() => void toggle()} disabled={saving || open == null}>
+          <Button size="sm" variant={open ? "outline" : "default"} onClick={() => void toggle()} disabled={!isAdmin || saving || open == null} title={isAdmin ? undefined : "Solo un administrador puede abrir o cerrar el formulario"}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {open ? "Cerrar formulario" : "Reabrir"}
           </Button>

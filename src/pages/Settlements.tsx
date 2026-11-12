@@ -28,7 +28,8 @@ const selectClass =
   "flex h-9 w-full items-center rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring";
 
 export default function Settlements() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isAdmin = profile?.role === "admin";
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyFilter, setCompanyFilter] = useState("");
   const [companyId, setCompanyId] = useState("");
@@ -297,7 +298,7 @@ export default function Settlements() {
                     {history.map((s) => (
                       <RowActions key={s.id} label={`Liquidación #${s.settlement_number}`} actions={[
                         { label: "Ver período de la liquidación", icon: FileCheck2, onSelect: () => { setFrom(s.period_from); setTo(s.period_to); setOnlyUnsettled(false); } },
-                        { label: "Registrar pago", icon: Check, disabled: !!s.paid_at, onSelect: () => { void markPaid(s); } },
+                        ...(isAdmin ? [{ label: "Registrar pago", icon: Check, disabled: !!s.paid_at, onSelect: () => { void markPaid(s); } }] : []),
                       ]}>
                       <TableRow>
                         <TableCell className="font-mono text-xs"><RowActionsButton />{s.settlement_number}</TableCell>
