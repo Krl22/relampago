@@ -2,6 +2,7 @@
 // desde Excel o Google Sheets, y validación fila por fila antes de enviar.
 import type { District } from "./districts";
 import { matchDistrict } from "./districts";
+import type { PickedItem } from "./stockMatch";
 
 export const BULK_COLUMNS = [
   { key: "recipient_name", header: "Destinatario", width: 26, required: true, synonyms: ["destinatario", "nombre", "cliente", "nombre del destinatario", "nombre cliente", "nombre y apellido"] },
@@ -17,7 +18,8 @@ export const BULK_COLUMNS = [
 ] as const;
 
 export type BulkKey = (typeof BULK_COLUMNS)[number]["key"];
-export type BulkRow = { id: number; line: number; values: Record<BulkKey, string> };
+/** items: productos del stock elegidos a mano en la revisión (sin definir = se reconocen del detalle). */
+export type BulkRow = { id: number; line: number; values: Record<BulkKey, string>; items?: PickedItem[] };
 export type RowCheck = { errors: Partial<Record<BulkKey, string>>; district: District | null; packages: number; amount: number };
 
 export const MAX_BULK_ROWS = 300;
@@ -152,7 +154,7 @@ export function checkRow(row: BulkRow, catalog: District[]): RowCheck {
 }
 
 /** Payload de submit_order para una fila válida. */
-export function rowPayload(row: BulkRow, check: RowCheck, origin: { type: "warehouse" | "pickup"; addressId: string | null }) {
+export function rowPayload(row: BulkRow, check: RowCheck, origin: { type: "warehouse" | "pickup"; addressId: string | null }, items: PickedItem[] = []) {
   const v = row.values;
   const agency = check.district?.kind === "agency";
   return {
@@ -170,11 +172,13 @@ export function rowPayload(row: BulkRow, check: RowCheck, origin: { type: "wareh
     comments: v.comments.trim() || null,
     origin_type: origin.type,
     pickup: origin.type === "pickup" ? { address_id: origin.addressId } : null,
+    // Productos del stock: quedan en order_items y se descuentan al entregar
+    items: origin.type === "warehouse" ? items.filter((it) => it.quantity > 0) : [],
   };
 }
 
 /** Plantilla .xlsx con el distrito como lista desplegable. */
-export async function downloadTemplate(catalog: District[]) {
+export async function downloadTemplate(catalog: District[], stockNames: string[] = []) {
   const { default: ExcelJS } = await import("exceljs");
   const wb = new ExcelJS.Workbook();
   wb.creator = "Relámpago Courier";
@@ -221,6 +225,14 @@ export async function downloadTemplate(catalog: District[]) {
     };
   }
 
+  if (stockNames.length) {
+    const mine = wb.addWorksheet("Mi stock");
+    mine.getColumn(1).width = 50;
+    mine.getCell("A1").value = "Productos de tu stock";
+    mine.getCell("A1").font = { bold: true };
+    stockNames.forEach((name, i) => (mine.getCell(`A${i + 2}`).value = name));
+  }
+
   const help = wb.addWorksheet("Instrucciones");
   help.getColumn(1).width = 110;
   [
@@ -230,6 +242,12 @@ export async function downloadTemplate(catalog: District[]) {
     "• Distrito: elígelo de la lista desplegable. Si es envío a provincia, elige la agencia y llena «Ciudad destino».",
     "• Paquetes: vacío = 1. Monto a cobrar: vacío o 0 si no hay cobro.",
     "• Si los paquetes salen del almacén o se recogen, lo eliges en el portal al subir el archivo.",
+    ...(stockNames.length
+      ? [
+          "• Productos de tu stock en el almacén: en «Detalle del producto» escribe la cantidad y el nombre, por ejemplo «2 Hepacare, 1 Bonescare».",
+          "  Los reconocemos en tu stock (hoja «Mi stock») y antes de enviar ves y corriges qué se descontará al entregarse.",
+        ]
+      : []),
     `• Máximo ${MAX_BULK_ROWS} pedidos por archivo. Revisarás todo antes de enviarlo.`,
   ].forEach((t, i) => {
     const cell = help.getCell(`A${i + 1}`);
