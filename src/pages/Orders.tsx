@@ -26,6 +26,7 @@ import {
   MapPinOff,
   PackageOpen,
   Trash2,
+  Upload,
   Warehouse,
   X,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import { TARIFF_AMOUNTS, TARIFF_CODES, computeFee } from "../lib/tariff";
 import { EditableCell, type CellValue, type EditorType, type Option } from "../components/orders/EditableCell";
 import { ColumnFilter, isFilterActive, type FilterValue } from "../components/orders/ColumnFilter";
 import { cn } from "@/lib/utils";
+import { AdminDeliveryDialog } from "../components/orders/AdminDeliveryDialog";
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
   companies: { name: string; invoice_igv: boolean; t1_rate: number | null } | null;
@@ -109,6 +111,7 @@ export default function Orders() {
   const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
+  const [deliverTarget, setDeliverTarget] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState("");
@@ -705,6 +708,12 @@ export default function Orders() {
                           setSelectedOrders((prev) => prev.includes(order.id) ? prev.filter((id) => id !== order.id) : [...prev, order.id]);
                         } },
                         { label: "Ver foto de entrega", icon: Camera, disabled: !proof, onSelect: () => { if (proof) setPreviewImage(proof); } },
+                        {
+                          label: order.status === "delivered" ? "Subir foto de entrega" : "Completar entrega con foto",
+                          icon: Upload,
+                          disabled: order.status === "cancelled" || (order.status === "delivered" && !!proof),
+                          onSelect: () => setDeliverTarget(order),
+                        },
                         { label: "Eliminar pedido", icon: Trash2, destructive: true, onSelect: () => setDeleteTarget(order) },
                       ]}>
                       <tr className={cn("group border-b hover:bg-muted/30", savingId === order.id && "opacity-60", selectedOrders.includes(order.id) && "bg-primary/5")}>
@@ -889,6 +898,25 @@ export default function Orders() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {deliverTarget && (
+        <AdminDeliveryDialog
+          key={deliverTarget.id}
+          order={deliverTarget}
+          onClose={() => setDeliverTarget(null)}
+          onDone={(r) => {
+            const id = deliverTarget.id;
+            setOrders((prev) =>
+              prev.map((o) =>
+                o.id === id
+                  ? { ...o, status: r.status, amount_collected: r.amount_collected, payment_method: r.payment_method, deliveries: [{ proof_image_url: r.proofUrl }, ...(o.deliveries ?? [])] }
+                  : o,
+              ),
+            );
+            setDeliverTarget(null);
+          }}
+        />
+      )}
 
       {/* Foto de entrega */}
       <Dialog open={!!previewImage} onOpenChange={() => setPreviewImage(null)}>
