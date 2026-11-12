@@ -81,6 +81,8 @@ test("Navigation remains limited to each role; assistant stays admin-only", () =
       ].includes(path),
     );
   assert.equal(paths("staff").includes("/stock"), false);
+  assert.ok(paths("admin").includes("/supervisores"));
+  assert.equal(paths("staff").includes("/supervisores"), false);
   assert.deepEqual(paths(undefined), []);
 });
 test("The Lightning stylesheet is entirely scoped, so classic styles are recoverable", () => {
@@ -161,8 +163,11 @@ test("All route paths and their authentication/role guards match the pre-redesig
   const courierRecord = routes.filter(route => route.path === "/couriers/:courierId");
   assert.equal(courierRecord.length, 1);
   assert.deepEqual(courierRecord[0].guards, [["admin"], ["authenticated"]]);
+  const supervisors = routes.filter((route) => route.path === "/supervisores");
+  assert.equal(supervisors.length, 1);
+  assert.deepEqual(supervisors[0].guards, [["admin"], ["authenticated"]]);
   assert.deepEqual(
-    routes.filter((route) => !["/comercios/:companyId", "/couriers/:courierId"].includes(route.path)),
+    routes.filter((route) => !["/comercios/:companyId", "/couriers/:courierId", "/supervisores"].includes(route.path)),
     routeManifest("work/checkpoints/lightning-app-2026-11-06/src/App.tsx"),
   );
 });

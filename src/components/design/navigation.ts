@@ -12,6 +12,7 @@ import {
   PlusCircle,
   Receipt,
   Route,
+  ShieldCheck,
   Store,
   Users,
   Truck,
@@ -24,6 +25,7 @@ type Counts = {
   companies: number;
   couriers: number;
   stock: number;
+  supervisors: number;
 };
 export type NavItem = {
   label: string;
@@ -85,6 +87,14 @@ export const navigation: NavItem[] = [
     roles: ["admin", "staff"],
     section: "Administración",
     count: "couriers",
+  },
+  {
+    label: "Supervisores",
+    href: "/supervisores",
+    icon: ShieldCheck,
+    roles: ["admin"],
+    section: "Administración",
+    count: "supervisors",
   },
   {
     label: "Inventario global",

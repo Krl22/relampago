@@ -41,6 +41,7 @@ export default function LightningAppLayout() {
     companies: 0,
     couriers: 0,
     stock: 0,
+    supervisors: 0,
   });
   const role = profile?.role;
   const items = navigationFor(role);
@@ -60,14 +61,19 @@ export default function LightningAppLayout() {
         .select("id", { count: "exact", head: true })
         .eq("role", "courier"),
       supabase.from("stock").select("id", { count: "exact", head: true }),
+      supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "staff"),
     ])
-      .then(([orders, companies, couriers, stock]) => {
+      .then(([orders, companies, couriers, stock, supervisors]) => {
         if (active)
           setCounts({
             orders: orders.count ?? 0,
             companies: companies.count ?? 0,
             couriers: couriers.count ?? 0,
             stock: stock.count ?? 0,
+            supervisors: supervisors.count ?? 0,
           });
       })
       .catch(() => {

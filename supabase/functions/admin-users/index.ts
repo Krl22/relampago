@@ -7,6 +7,8 @@
 //   impersonate_end marca el fin de un "Ver como" en el registro
 // Solo admin/staff pueden llamarla; create/reset/delete solo tocan cuentas con rol 'client'.
 // "Ver como" es solo para admins y nunca como otro admin; cada ingreso queda en impersonation_log.
+//   list_staff / create_staff / reset_staff_password / delete_staff
+//                   cuentas de Supervisor (rol 'staff'); solo admin, y solo tocan cuentas con ese rol
 import { createClient } from "npm:@supabase/supabase-js@2.95.3";
 
 const cors = {
@@ -27,7 +29,11 @@ type Body =
   | { action: "reset_password"; user_id: string; password: string }
   | { action: "delete"; user_id: string }
   | { action: "impersonate"; user_id: string; company_id?: string }
-  | { action: "impersonate_end"; log_id: string };
+  | { action: "impersonate_end"; log_id: string }
+  | { action: "list_staff" }
+  | { action: "create_staff"; email: string; password: string; full_name: string }
+  | { action: "reset_staff_password"; user_id: string; password: string }
+  | { action: "delete_staff"; user_id: string };
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -120,6 +126,55 @@ Deno.serve(async (req) => {
         return json(500, { error: "No se pudo preparar el perfil de motorizado. Contacta con soporte antes de reintentar." });
       }
       return json(200, { id: courier.id, role: courier.role });
+    }
+
+    // Supervisores: cuentas internas con contraseña inicial que el admin entrega en persona
+    if (body.action === "list_staff") {
+      const { data, error } = await admin.from("profiles").select("id, full_name, email, created_at").eq("role", "staff").order("created_at");
+      if (error) return json(500, { error: "No se pudieron cargar los supervisores." });
+      const users = await Promise.all((data ?? []).map(async (p) => {
+        const { data: a } = await admin.auth.admin.getUserById(p.id);
+        return { ...p, last_sign_in_at: a.user?.last_sign_in_at ?? null };
+      }));
+      return json(200, { users });
+    }
+    if (body.action === "create_staff") {
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      const name = typeof body.full_name === "string" ? body.full_name.trim() : "";
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || name.length < 2 || name.length > 150) {
+        return json(400, { error: "Indica un nombre y un correo válido para el supervisor." });
+      }
+      if (typeof body.password !== "string" || body.password.length < 8 || body.password.length > 128) {
+        return json(400, { error: "La contraseña debe tener entre 8 y 128 caracteres." });
+      }
+      const { data: created, error: createError } = await admin.auth.admin.createUser({
+        email, password: body.password, email_confirm: true, user_metadata: { full_name: name },
+      });
+      if (createError || !created.user) return json(400, { error: friendly(createError?.message ?? "No se pudo crear la cuenta.") });
+      const { data: staff, error: roleError } = await admin.from("profiles")
+        .update({ role: "staff", company_id: null, full_name: name })
+        .eq("id", created.user.id).select("id, role").single();
+      if (roleError || staff?.role !== "staff") {
+        const { error: cleanupError } = await admin.auth.admin.deleteUser(created.user.id);
+        if (cleanupError) console.error("Staff account setup requires cleanup", created.user.id);
+        return json(500, { error: "No se pudo preparar el perfil de supervisor. Intenta de nuevo." });
+      }
+      return json(200, { id: staff.id, role: staff.role });
+    }
+    if (body.action === "reset_staff_password" || body.action === "delete_staff") {
+      const { data: target } = await admin.from("profiles").select("role").eq("id", body.user_id ?? "").maybeSingle();
+      if (!target || target.role !== "staff") return json(400, { error: "Esa cuenta no es de un supervisor." });
+      if (body.action === "reset_staff_password") {
+        if (typeof body.password !== "string" || body.password.length < 8 || body.password.length > 128) {
+          return json(400, { error: "La contraseña debe tener entre 8 y 128 caracteres." });
+        }
+        const { error } = await admin.auth.admin.updateUserById(body.user_id, { password: body.password });
+        if (error) return json(400, { error: friendly(error.message) });
+        return json(200, { ok: true });
+      }
+      const { error } = await admin.auth.admin.deleteUser(body.user_id);
+      if (error) return json(400, { error: "No se pudo quitar el acceso. Si tiene pedidos o entregas registradas, contacta a soporte." });
+      return json(200, { ok: true });
     }
 
     const profileFields = "id, full_name, email, company_id, created_at";

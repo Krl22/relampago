@@ -18,6 +18,7 @@ const CompanyRecordPage = lazy(() => import("./pages/CompanyRecordPage"));
 const CourierRecordPage = lazy(() => import("./pages/CourierRecordPage"));
 const Stock = lazy(() => import("./pages/Stock"));
 const Couriers = lazy(() => import("./pages/Couriers"));
+const Supervisors = lazy(() => import("./pages/Supervisors"));
 const CourierMap = lazy(() => import("./pages/CourierMap"));
 const MyRoute = lazy(() => import("./pages/MyRoute"));
 const Pickups = lazy(() => import("./pages/Pickups"));
@@ -101,6 +102,7 @@ function App() {
                         element={<ProtectedRoute allowedRoles={["admin"]} />}
                       >
                         <Route path="/asistente" element={<EnterpriseChat />} />
+                        <Route path="/supervisores" element={<Supervisors />} />
                         <Route
                           path="/comercios/:companyId"
                           element={<CompanyRecordPage />}
