@@ -14,6 +14,20 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180x180.png" />
     <title>Relámpago Courier</title>
+    <script>
+      // Aplica la vista y el tema guardados antes de pintar (evita un destello blanco en modo oscuro)
+      try {
+        var root = document.documentElement;
+        var vista = new URLSearchParams(location.search).get("vista");
+        var design = vista === "lightning" ? "lightning" : vista === "clasica" ? "classic" : localStorage.getItem("relampago.design.v2");
+        if (design === "lightning") {
+          var theme = localStorage.getItem("relampago.theme.v1") || "system";
+          if (theme === "system") theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          root.dataset.design = "lightning";
+          root.dataset.theme = theme;
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
