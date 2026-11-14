@@ -194,12 +194,16 @@ Live: https://relampago-courier.carthe5kboy.workers.dev
 
 The app is served as static assets from a Worker (`wrangler.jsonc`, SPA fallback enabled).
 
+**Automatic deploys:** every push to `main` on GitHub (`Krl22/relampago`) is built and published by Cloudflare Workers Builds (`npm test && npm run build`, then `npx wrangler deploy`). The public Supabase browser variables live in `.env.production` (committed).
+
+To deploy manually from this machine:
+
 ```bash
 npx wrangler login   # once
-npm run deploy       # builds with the VITE_* vars from .env, then wrangler deploy
+npm run deploy       # builds with the VITE_* vars, then wrangler deploy
 ```
 
-Because Vite inlines `VITE_*` variables at build time, `.env` must exist before building.
+Vite inlines `VITE_*` variables at build time, so never put secrets in them.
 
 ## Portfolio context
 
